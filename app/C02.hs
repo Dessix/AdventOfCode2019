@@ -1,6 +1,7 @@
 module C02 where
 
 import Control.Exception
+import Control.Lens
 import Control.Monad
 import Control.Monad.ST
 import Data.Array.IArray
@@ -10,43 +11,28 @@ import Data.Functor
 import Data.Ratio
 import Debug.Trace
 import Text.Printf
+
 import Utils
 import C01
 
-readArraySequence :: (STArray s Int e) -> Int -> Int -> ST s [e]
-readArraySequence _ _ 0 = return []
-readArraySequence array start count = do
-    item <- readArray array start
-    rest <- readArraySequence array (start + 1) (count - 1)
-    return (item : rest)
+readArrayEach :: (MArray a e m, Ix i) => a i e -> [i] -> m [e]
+readArrayEach array positions = mapM (readArray array) positions
 
-readArrayEach :: (Ix i) => (STArray s i e) -> [i] -> ST s [e]
-readArrayEach array positions =
-    case positions of
-        [] -> return []
-        x : xs -> do
-            item <- readArray array x
-            rest <- readArrayEach array xs
-            return (item : rest)
+readArraySequence :: (MArray a e m, Ix i, Num i, Enum i) => a i e -> i -> i -> m [e]
+readArraySequence array start count = readArrayEach array [start..start + count - 1]
 
-readArrayPointer :: (Ix e) => (STArray s e e) -> e -> ST s e
-readArrayPointer array pointerPos = do
-    target <- readArray array pointerPos
-    readArray array target
+readArrayPointer :: (MArray a e m, Ix e) => a e e -> e -> m e
+readArrayPointer array pointerPos = readArray array pointerPos >>= readArray array
 
 runIntCodeAtPositionST :: (STArray s Int Int) -> Int -> ST s (STArray s Int Int)
 runIntCodeAtPositionST input position = do 
     opcode <- readArray input position
-    traceM $ printf "Opcode encountered: %d" opcode
     case opcode of
         1 -> -- from x, y, write sum to z
             do
             [xp, yp, zp] <- readArraySequence input (position + 1) 3
-            -- [x', y'] <- readArrayEach input [xp, yp]
-            x' <- readArrayPointer input (position + 1)
-            y' <- readArrayPointer input (position + 2)
-            let z' = x' + y' in
-                do
+            [x', y'] <- readArrayEach input [xp, yp]
+            let z' = x' + y' in do
                 writeArray input zp z'
                 traceM $ printf "Add @%d @%d to @%d values %d + %d = %d" xp yp zp x' y' z'
             runIntCodeAtPositionST input (position + 4)
@@ -54,8 +40,7 @@ runIntCodeAtPositionST input position = do
             do
             [xp, yp, zp] <- readArraySequence input (position + 1) 3
             [x', y'] <- readArrayEach input [xp, yp]
-            let z' = x' * y' in
-                do
+            let z' = x' * y' in do
                 writeArray input zp z'
                 traceM $ printf "Mul @%d @%d to @%d values %d + %d = %d" xp yp zp x' y' z'
             runIntCodeAtPositionST input (position + 4)
