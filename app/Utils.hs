@@ -15,3 +15,6 @@ arrayOfList items = array (0, (length items) - 1) (zip [0..] items)
 -- assert :: Bool -> a -> a
 -- assert False x = error "Assertion failed!"
 -- assert _ x = x
+
+cartesianProduct :: [a] -> [b] -> [(a, b)]
+cartesianProduct xs ys = [(x,y) | x <- xs, y <- ys]

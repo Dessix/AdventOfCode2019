@@ -8,6 +8,7 @@ import Data.Array.IArray
 import Data.Array.ST
 import Data.Function
 import Data.Functor
+import Data.List
 import Data.Ratio
 import Debug.Trace
 import Text.Printf
@@ -21,51 +22,75 @@ readArrayEach array positions = mapM (readArray array) positions
 readArraySequence :: (MArray a e m, Ix i, Num i, Enum i) => a i e -> i -> i -> m [e]
 readArraySequence array start count = readArrayEach array [start..start + count - 1]
 
+readArrayEachInBounds :: (MArray a e m, Ix i, Num i, Enum i) => a i e -> [i] -> m (Maybe [e])
+readArrayEachInBounds array positions = do
+    bounds <- getBounds array
+    let boundsCheck = inRange bounds in
+        let allIn = (all (==True) (map boundsCheck positions)) :: Bool in
+            if allIn then ((do
+                results <- (mapM (readArray array) positions)
+                return (Just results)
+                )) else ((return Nothing))
+
 readArrayPointer :: (MArray a e m, Ix e) => a e e -> e -> m e
 readArrayPointer array pointerPos = readArray array pointerPos >>= readArray array
 
-runIntCodeAtPositionST :: (STArray s Int Int) -> Int -> ST s (STArray s Int Int)
+runIntCodeAtPositionST :: (STArray s Int Int) -> Int -> ST s (Maybe (STArray s Int Int))
 runIntCodeAtPositionST input position = do 
     opcode <- readArray input position
     case opcode of
         1 -> -- from x, y, write sum to z
             do
             [xp, yp, zp] <- readArraySequence input (position + 1) 3
-            [x', y'] <- readArrayEach input [xp, yp]
-            let z' = x' + y' in do
-                writeArray input zp z'
-                traceM $ printf "Add @%d @%d to @%d values %d + %d = %d" xp yp zp x' y' z'
-            runIntCodeAtPositionST input (position + 4)
+            destVals <- readArrayEachInBounds input [xp, yp]
+            case destVals of
+                Nothing -> return (Just input) --error "Boundscheck caught"
+                Just [x', y'] -> do
+                    let z' = x' + y' in do
+                        writeArray input zp z'
+                        traceM $ printf "Add @%d @%d to @%d values %d + %d = %d" xp yp zp x' y' z'
+                    runIntCodeAtPositionST input (position + 4)
         2 -> -- from x, y, write product to z
             do
             [xp, yp, zp] <- readArraySequence input (position + 1) 3
-            [x', y'] <- readArrayEach input [xp, yp]
-            let z' = x' * y' in do
-                writeArray input zp z'
-                traceM $ printf "Mul @%d @%d to @%d values %d + %d = %d" xp yp zp x' y' z'
-            runIntCodeAtPositionST input (position + 4)
+            destVals <- readArrayEachInBounds input [xp, yp]
+            case destVals of
+                Nothing -> return (Just input) --error "Boundscheck caught"
+                Just [x', y'] -> do
+                    let z' = x' * y' in do
+                        writeArray input zp z'
+                        traceM $ printf "Mul @%d @%d to @%d values %d + %d = %d" xp yp zp x' y' z'
+                    runIntCodeAtPositionST input (position + 4)
         99 -> -- Bail out
             do
             traceM $ printf "Bailing at exit instruction"
-            return input
+            return (Just input)
         unknown -> -- Unknown opcode
             error (printf "Opcode %d is not implemented" unknown)
 
 
-runIntCodeST :: (STArray s Int Int) -> ST s (STArray s Int Int)
+runIntCodeST :: (STArray s Int Int) -> ST s (Maybe (STArray s Int Int))
 runIntCodeST input = runIntCodeAtPositionST input 0
 
-runIntCode :: [Int] -> [Int]
+runIntCode :: [Int] -> Maybe [Int]
 runIntCode input =
     let inputAsArray = arrayOfList input in
-    let results = runSTArray (thaw inputAsArray >>= runIntCodeST) in
-    (Data.Array.IArray.elems (results :: Array Int Int))
+    let results = runST (do
+        arr <- thaw inputAsArray
+        res <- runIntCodeST arr
+        case res of
+            Just a -> do
+                frozen <- freeze a
+                return (Just frozen) 
+            Nothing -> return Nothing
+        ) in
+    liftM (\r -> (Data.Array.IArray.elems (r :: Array Int Int))) results
 
 
 testIntCode :: [Int] -> [Int] -> String
 testIntCode input expected =
     let result = runIntCode input in
-    assert (result == expected) (printf "%s resulted in %s" (show input) (show expected))
+    assert (result == (Just expected)) (printf "%s resulted in %s" (show input) (show expected))
 
 runtests =
     let results = (
@@ -98,4 +123,11 @@ findIntCodeTweakWithResultArray input desired (tweaks : rest) =
 
 
 test1202 =
-    findIntCodeTweakWithResult [2,13,17,0, 1,0,21,0, 99,0,0,0, 2,100,0,14, 2,0,0,18, 2,0,0,22] 1202 [[(29,4)], [(17,12),(21,2)]]
+    findIntCodeTweakWithResult [2,13,17,0, 1,0,21,0, 99,0,0,0, 2,100,0,14, 2,0,0,18, 2,0,0,22] 1202 [[(1,400)], [(17,12),(21,2)]]
+
+tweaksets =
+    let baseNumbers = sortOn (\(a, b) -> (max a b)) (cartesianProduct [0..99] [0..99]) in
+    [[(1, x), (2, y)] | (x, y) <- baseNumbers] :: [[(Int, Int)]]
+
+solvePart2 requestedNumber inputs =
+    findIntCodeTweakWithResult inputs requestedNumber tweaksets
