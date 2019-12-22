@@ -76,3 +76,26 @@ runtests =
             : []
             ) in
     (map (\result -> trace result ()) results)
+
+findIntCodeTweakWithResult :: [Int] -> Int -> [[(Int, Int)]] -> Maybe [(Int, Int)]
+findIntCodeTweakWithResult input = findIntCodeTweakWithResultArray (arrayOfList input)
+
+findIntCodeTweakWithResultArray :: Array Int Int -> Int -> [[(Int, Int)]] -> Maybe [(Int, Int)]
+findIntCodeTweakWithResultArray _ _ [] = Nothing
+findIntCodeTweakWithResultArray input desired (tweaks : rest) =
+    let output = runST (do
+        arr <- thaw input
+        mapM_ (\(pos, newValue) -> writeArray arr pos newValue) tweaks
+        runIntCodeST arr
+        resultCode <- readArray arr 0
+        if resultCode == desired then return (Just tweaks) else do
+            traceM (printf "ResultCode incorrect with value %d" resultCode)
+            return Nothing
+        ) in
+    case output of
+        Just tweaks -> Just tweaks
+        Nothing -> findIntCodeTweakWithResultArray input desired rest
+
+
+test1202 =
+    findIntCodeTweakWithResult [2,13,17,0, 1,0,21,0, 99,0,0,0, 2,100,0,14, 2,0,0,18, 2,0,0,22] 1202 [[(29,4)], [(17,12),(21,2)]]
