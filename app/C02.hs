@@ -5,7 +5,9 @@ import Control.Lens
 import Control.Monad
 import Control.Monad.ST
 import Data.Array.IArray
-import Data.Array.ST
+import Data.Array.MArray
+import Data.Array.ST (STArray)
+import qualified Data.Array.ST
 import Data.Function
 import Data.Functor
 import Data.List
@@ -35,7 +37,7 @@ readArrayEachInBounds array positions = do
 readArrayPointer :: (MArray a e m, Ix e) => a e e -> e -> m e
 readArrayPointer array pointerPos = readArray array pointerPos >>= readArray array
 
-runIntCodeAtPositionST :: (STArray s Int Int) -> Int -> ST s (Maybe (STArray s Int Int))
+runIntCodeAtPositionST :: (Ix e, Num e, Enum e, PrintfArg e, Show e) => (STArray s e e) -> e -> ST s (Maybe (STArray s e e))
 runIntCodeAtPositionST input position = do 
     opcode <- readArray input position
     case opcode of
@@ -69,15 +71,16 @@ runIntCodeAtPositionST input position = do
             error (printf "Opcode %d is not implemented" unknown)
 
 
-runIntCodeST :: (STArray s Int Int) -> ST s (Maybe (STArray s Int Int))
+runIntCodeST :: (Ix e, Num e, Enum e, PrintfArg e, Show e) => (STArray s e e) -> ST s (Maybe (STArray s e e))
 runIntCodeST input = runIntCodeAtPositionST input 0
 
 runIntCode :: [Int] -> Maybe [Int]
 runIntCode input =
+    let runner = runIntCodeST in
     let inputAsArray = arrayOfList input in
     let results = runST (do
-        arr <- thaw inputAsArray
-        res <- runIntCodeST arr
+        arr <- Data.Array.ST.thaw inputAsArray
+        res <- runner arr
         case res of
             Just a -> do
                 frozen <- freeze a
@@ -109,10 +112,10 @@ findIntCodeTweakWithResultArray :: Array Int Int -> Int -> [[(Int, Int)]] -> May
 findIntCodeTweakWithResultArray _ _ [] = Nothing
 findIntCodeTweakWithResultArray input desired (tweaks : rest) =
     let output = runST (do
-        arr <- thaw input
+        arr <- (Data.Array.ST.thaw input) :: ST s (Data.Array.ST.STArray s Int Int)
         mapM_ (\(pos, newValue) -> writeArray arr pos newValue) tweaks
         runIntCodeST arr
-        resultCode <- readArray arr 0
+        resultCode <- readArray arr (0 :: Int)
         if resultCode == desired then return (Just tweaks) else do
             traceM (printf "ResultCode incorrect with value %d" resultCode)
             return Nothing
