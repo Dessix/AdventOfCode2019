@@ -7,7 +7,7 @@ import qualified Control.Monad.Fail
 import Control.Monad.ST
 import Data.Array.IArray
 import Data.Array.MArray
-import Data.Array.ST (STArray)
+import Data.Array.ST (STArray, STUArray)
 import qualified Data.Array.ST
 import Data.Function
 import Data.Functor
@@ -38,8 +38,10 @@ readArrayEachInBounds array positions = do
 readArrayPointer :: (MArray a e m, Ix e) => a e e -> e -> m e
 readArrayPointer array pointerPos = readArray array pointerPos >>= readArray array
 
-runIntCodeAtPositionST :: (MArray a e m, Ix e, Num e, Enum e, PrintfArg e, Num e) => (a e e) -> e -> m (Maybe (a e e))
-runIntCodeAtPositionST input position = do 
+runIntCodeAtPositionST :: (MArray a e m, Ix e, Num e, Enum e, PrintfArg e, Num e, Integral e) => (a e e) -> e -> m (Maybe (a e e))
+runIntCodeAtPositionST input position =
+    let positionString = (printf "% 8d |" position) :: String in
+    do
     opcode <- readArray input position
     case opcode of
         1 -> -- from x, y, write sum to z
@@ -54,7 +56,7 @@ runIntCodeAtPositionST input position = do
                         Just [x', y'] -> do
                             let z' = x' + y' in do
                                 writeArray input zp z'
-                                traceM $ printf "Add @%d @%d to @%d values %d + %d = %d" xp yp zp x' y' z'
+                                traceM $ printf "%s add %10d @ %-5d %10d @ %-5d -> %10d @ %-5d" positionString x' xp y' yp z' zp
                             runIntCodeAtPositionST input (position + 4)
                 _ -> return Nothing
         2 -> -- from x, y, write product to z
@@ -69,25 +71,25 @@ runIntCodeAtPositionST input position = do
                         Just [x', y'] -> do
                             let z' = x' * y' in do
                                 writeArray input zp z'
-                                traceM $ printf "Mul @%d @%d to @%d values %d + %d = %d" xp yp zp x' y' z'
+                                traceM $ printf "%s mul %10d @ %-5d %10d @ %-5d -> %10d @ %-5d" positionString x' xp y' yp z' zp
                             runIntCodeAtPositionST input (position + 4)
                 _ -> return Nothing
         99 -> -- Bail out
             do
-            traceM $ printf "Bailing at exit instruction"
+            traceM $ printf "%s hcf" positionString
             return (Just input)
         unknown -> -- Unknown opcode
             error (printf "Opcode %d is not implemented" unknown)
 
 
-runIntCodeST :: (MArray a e m, Ix e, Num e, Enum e, PrintfArg e, Show e) => (a e e) -> m (Maybe (a e e))
+runIntCodeST :: (MArray a e m, Ix e, Num e, Enum e, PrintfArg e, Integral e) => (a e e) -> m (Maybe (a e e))
 runIntCodeST input = runIntCodeAtPositionST input 0
 
 runIntCode :: [Int] -> Maybe [Int]
 runIntCode input =
     let inputAsArray = (arrayOfList input :: Array Int Int) in
     let results = (runST (do
-        arr <- (Data.Array.ST.thaw inputAsArray :: ST s (STArray s Int Int))
+        arr <- (Data.Array.ST.thaw inputAsArray :: ST s (STUArray s Int Int))
         res <- runIntCodeST arr
         mapM freeze res
         )) :: Maybe (Array Int Int) in
@@ -116,7 +118,7 @@ findIntCodeTweakWithResultArray :: Array Int Int -> Int -> [[(Int, Int)]] -> May
 findIntCodeTweakWithResultArray _ _ [] = Nothing
 findIntCodeTweakWithResultArray input desired (tweaks : rest) =
     let output = runST (do
-        arr <- (Data.Array.ST.thaw input) :: ST s (Data.Array.ST.STArray s Int Int)
+        arr <- (Data.Array.ST.thaw input) :: ST s (Data.Array.ST.STUArray s Int Int)
         mapM_ (\(pos, newValue) -> writeArray arr pos newValue) tweaks
         runIntCodeST arr
         resultCode <- readArray arr (0 :: Int)
