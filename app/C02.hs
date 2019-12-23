@@ -44,7 +44,7 @@ runIntCodeAtPositionST input position = do
             [xp, yp, zp] <- readArraySequence input (position + 1) 3
             destVals <- readArrayEachInBounds input [xp, yp]
             case destVals of
-                Nothing -> return (Just input) --error "Boundscheck caught"
+                Nothing -> return Nothing --error "Boundscheck caught"
                 Just [x', y'] -> do
                     let z' = x' + y' in do
                         writeArray input zp z'
@@ -55,7 +55,7 @@ runIntCodeAtPositionST input position = do
             [xp, yp, zp] <- readArraySequence input (position + 1) 3
             destVals <- readArrayEachInBounds input [xp, yp]
             case destVals of
-                Nothing -> return (Just input) --error "Boundscheck caught"
+                Nothing -> return Nothing --error "Boundscheck caught"
                 Just [x', y'] -> do
                     let z' = x' * y' in do
                         writeArray input zp z'
