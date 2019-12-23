@@ -3,6 +3,7 @@ module C02 where
 import Control.Exception
 import Control.Lens
 import Control.Monad
+import qualified Control.Monad.Fail
 import Control.Monad.ST
 import Data.Array.IArray
 import Data.Array.MArray
@@ -37,32 +38,40 @@ readArrayEachInBounds array positions = do
 readArrayPointer :: (MArray a e m, Ix e) => a e e -> e -> m e
 readArrayPointer array pointerPos = readArray array pointerPos >>= readArray array
 
-runIntCodeAtPositionST :: (Ix e, Num e, Enum e, PrintfArg e, Show e) => (STArray s e e) -> e -> ST s (Maybe (STArray s e e))
+runIntCodeAtPositionST :: (MArray a e m, Ix e, Num e, Enum e, PrintfArg e, Num e) => (a e e) -> e -> m (Maybe (a e e))
 runIntCodeAtPositionST input position = do 
     opcode <- readArray input position
     case opcode of
         1 -> -- from x, y, write sum to z
             do
-            [xp, yp, zp] <- readArraySequence input (position + 1) 3
-            destVals <- readArrayEachInBounds input [xp, yp]
-            case destVals of
-                Nothing -> return Nothing --error "Boundscheck caught"
-                Just [x', y'] -> do
-                    let z' = x' + y' in do
-                        writeArray input zp z'
-                        traceM $ printf "Add @%d @%d to @%d values %d + %d = %d" xp yp zp x' y' z'
-                    runIntCodeAtPositionST input (position + 4)
+            params <- readArraySequence input (succ position) 3
+            case params of
+                [xp, yp, zp] ->
+                    do
+                    destVals <- readArrayEachInBounds input [xp, yp]
+                    case destVals of
+                        Nothing -> return Nothing --error "Boundscheck caught"
+                        Just [x', y'] -> do
+                            let z' = x' + y' in do
+                                writeArray input zp z'
+                                traceM $ printf "Add @%d @%d to @%d values %d + %d = %d" xp yp zp x' y' z'
+                            runIntCodeAtPositionST input (position + 4)
+                _ -> return Nothing
         2 -> -- from x, y, write product to z
             do
-            [xp, yp, zp] <- readArraySequence input (position + 1) 3
-            destVals <- readArrayEachInBounds input [xp, yp]
-            case destVals of
-                Nothing -> return Nothing --error "Boundscheck caught"
-                Just [x', y'] -> do
-                    let z' = x' * y' in do
-                        writeArray input zp z'
-                        traceM $ printf "Mul @%d @%d to @%d values %d + %d = %d" xp yp zp x' y' z'
-                    runIntCodeAtPositionST input (position + 4)
+            params <- readArraySequence input (succ position) 3
+            case params of
+                [xp, yp, zp] ->
+                    do
+                    destVals <- readArrayEachInBounds input [xp, yp]
+                    case destVals of
+                        Nothing -> return Nothing --error "Boundscheck caught"
+                        Just [x', y'] -> do
+                            let z' = x' * y' in do
+                                writeArray input zp z'
+                                traceM $ printf "Mul @%d @%d to @%d values %d + %d = %d" xp yp zp x' y' z'
+                            runIntCodeAtPositionST input (position + 4)
+                _ -> return Nothing
         99 -> -- Bail out
             do
             traceM $ printf "Bailing at exit instruction"
@@ -71,23 +80,18 @@ runIntCodeAtPositionST input position = do
             error (printf "Opcode %d is not implemented" unknown)
 
 
-runIntCodeST :: (Ix e, Num e, Enum e, PrintfArg e, Show e) => (STArray s e e) -> ST s (Maybe (STArray s e e))
+runIntCodeST :: (MArray a e m, Ix e, Num e, Enum e, PrintfArg e, Show e) => (a e e) -> m (Maybe (a e e))
 runIntCodeST input = runIntCodeAtPositionST input 0
 
 runIntCode :: [Int] -> Maybe [Int]
 runIntCode input =
-    let runner = runIntCodeST in
-    let inputAsArray = arrayOfList input in
-    let results = runST (do
-        arr <- Data.Array.ST.thaw inputAsArray
-        res <- runner arr
-        case res of
-            Just a -> do
-                frozen <- freeze a
-                return (Just frozen) 
-            Nothing -> return Nothing
-        ) in
-    liftM (\r -> (Data.Array.IArray.elems (r :: Array Int Int))) results
+    let inputAsArray = (arrayOfList input :: Array Int Int) in
+    let results = (runST (do
+        arr <- (Data.Array.ST.thaw inputAsArray :: ST s (STArray s Int Int))
+        res <- runIntCodeST arr
+        mapM freeze res
+        )) :: Maybe (Array Int Int) in
+    liftM Data.Array.IArray.elems results
 
 
 testIntCode :: [Int] -> [Int] -> String
