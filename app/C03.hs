@@ -12,7 +12,10 @@ import Data.Function
 import Data.Functor
 import Data.List
 import Data.Ratio
-import Data.Vector
+import qualified Data.Vector
+import qualified Data.Text as T
+import Data.Map (Map)
+import qualified Data.Map as Map
 
 import Debug.Trace
 
@@ -20,8 +23,37 @@ import Text.Printf
 
 import Utils
 
-parsePuzzleLines plines =
-    (fmap (read :: String -> Int)) <$> Utils.getLinesUntilBlank
+data Direction = DUp | DDown | DLeft | DRight deriving (Show)
 
-readPuzzleFromLines :: IO [Int]
-readPuzzleFromLines = parsePuzzleLines $ Utils.getLinesUntilBlank 
+newtype WireSequence = WireSequence [(Direction, Word)]
+instance Show WireSequence where
+    show (WireSequence seq) = show seq
+
+parseDirectionCode :: String -> (Direction, Word)
+parseDirectionCode code =
+    let distance = (read (tail code)) in
+    case (head code) of
+        'U' -> (DUp, distance)
+        'D' -> (DDown, distance)
+        'L' -> (DLeft, distance)
+        'R' -> (DRight, distance)
+        c -> error $ printf "Invalid direction code %s given" c
+
+parsePuzzleLines :: [String] -> [WireSequence]
+parsePuzzleLines plines =
+    let entriesMapper l =
+            let itemStrings = (T.splitOn (T.pack ",") (T.pack l)) in
+            WireSequence $ map parseDirectionCode $ map T.unpack itemStrings
+    in
+    plines & map entriesMapper
+
+findWireIntersections :: [WireSequence] -> [(Int, Int)]
+findWireIntersections =
+    undefined
+
+solvePuzzleFromLines :: IO ()
+solvePuzzleFromLines =
+    do
+    l <- Utils.getLinesUntilBlank
+    let solution = findWireIntersections $ parsePuzzleLines l in
+        putStrLn $ printf "Solved! %s" $ show solution
