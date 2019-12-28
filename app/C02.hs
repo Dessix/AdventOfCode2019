@@ -38,7 +38,7 @@ readArrayEachInBounds array positions = do
 readArrayPointer :: (MArray a e m, Ix e) => a e e -> e -> m e
 readArrayPointer array pointerPos = readArray array pointerPos >>= readArray array
 
-runIntCodeAtPositionST :: (MArray a e m, Ix e, Num e, Enum e, PrintfArg e, Num e, Integral e) => (a e e) -> e -> m (Maybe (a e e))
+runIntCodeAtPositionST :: (MArray a e m, Ix e, Num e, Enum e, PrintfArg e, Num e, Integral e, Control.Monad.Fail.MonadFail m) => (a e e) -> e -> m (Maybe (a e e))
 runIntCodeAtPositionST input position =
     let positionString = (printf "% 8d |" position) :: String in
     do
@@ -46,34 +46,26 @@ runIntCodeAtPositionST input position =
     case opcode of
         1 -> -- from x, y, write sum to z
             do
-            params <- readArraySequence input (succ position) 3
-            case params of
-                [xp, yp, zp] ->
-                    do
-                    destVals <- readArrayEachInBounds input [xp, yp]
-                    case destVals of
-                        Nothing -> return Nothing --error "Boundscheck caught"
-                        Just [x', y'] -> do
-                            let z' = x' + y' in do
-                                writeArray input zp z'
-                                traceM $ printf "%s add %10d @ %-5d %10d @ %-5d -> %10d @ %-5d" positionString x' xp y' yp z' zp
-                            runIntCodeAtPositionST input (position + 4)
-                _ -> return Nothing
+            [xp, yp, zp] <- readArraySequence input (succ position) 3
+            destVals <- readArrayEachInBounds input [xp, yp]
+            case destVals of
+                Nothing -> return Nothing --error "Boundscheck caught"
+                Just [x', y'] -> do
+                    let z' = x' + y' in do
+                        writeArray input zp z'
+                        traceM $ printf "%s add %10d @ %-5d %10d @ %-5d -> %10d @ %-5d" positionString x' xp y' yp z' zp
+                    runIntCodeAtPositionST input (position + 4)
         2 -> -- from x, y, write product to z
             do
-            params <- readArraySequence input (succ position) 3
-            case params of
-                [xp, yp, zp] ->
-                    do
-                    destVals <- readArrayEachInBounds input [xp, yp]
-                    case destVals of
-                        Nothing -> return Nothing --error "Boundscheck caught"
-                        Just [x', y'] -> do
-                            let z' = x' * y' in do
-                                writeArray input zp z'
-                                traceM $ printf "%s mul %10d @ %-5d %10d @ %-5d -> %10d @ %-5d" positionString x' xp y' yp z' zp
-                            runIntCodeAtPositionST input (position + 4)
-                _ -> return Nothing
+            [xp, yp, zp] <- readArraySequence input (succ position) 3
+            destVals <- readArrayEachInBounds input [xp, yp]
+            case destVals of
+                Nothing -> return Nothing --error "Boundscheck caught"
+                Just [x', y'] ->
+                    let z' = x' * y' in do
+                        writeArray input zp z'
+                        traceM $ printf "%s mul %10d @ %-5d %10d @ %-5d -> %10d @ %-5d" positionString x' xp y' yp z' zp
+                        runIntCodeAtPositionST input (position + 4)
         99 -> -- Bail out
             do
             traceM $ printf "%s hcf" positionString
@@ -82,7 +74,7 @@ runIntCodeAtPositionST input position =
             error (printf "Opcode %d is not implemented" unknown)
 
 
-runIntCodeST :: (MArray a e m, Ix e, Num e, Enum e, PrintfArg e, Integral e) => (a e e) -> m (Maybe (a e e))
+runIntCodeST :: (MArray a e m, Ix e, Num e, Enum e, PrintfArg e, Integral e, Control.Monad.Fail.MonadFail m) => (a e e) -> m (Maybe (a e e))
 runIntCodeST input = runIntCodeAtPositionST input 0
 
 runIntCode :: [Int] -> Maybe [Int]

@@ -20,3 +20,8 @@ import Text.Printf
 
 import Utils
 
+parsePuzzleLines plines =
+    (fmap (read :: String -> Int)) <$> Utils.getLinesUntilBlank
+
+readPuzzleFromLines :: IO [Int]
+readPuzzleFromLines = parsePuzzleLines $ Utils.getLinesUntilBlank 
