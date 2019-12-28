@@ -23,13 +23,23 @@ import Text.Printf
 
 import Utils
 
-data Direction = DUp | DDown | DLeft | DRight deriving (Show)
+data Direction = DUp | DDown | DLeft | DRight
+instance Show Direction where
+    show d = case d of
+            DUp -> "Up"
+            DDown -> "Down"
+            DLeft -> "Left"
+            DRight -> "Right"
 
-newtype WireSequence = WireSequence [(Direction, Word)]
+data WireNode = WireNode (Direction, Word)
+instance Show WireNode where
+    show (WireNode (direction, distance)) = printf "%c%d" (head (show direction)) distance
+
+newtype WireSequence = WireSequence [WireNode]
 instance Show WireSequence where
-    show (WireSequence seq) = show seq
+    show (WireSequence nodes) = show nodes
 
-parseDirectionCode :: String -> (Direction, Word)
+parseDirectionCode :: String -> WireNode
 parseDirectionCode code =
     let distance = (read (tail code)) in
     let direction = case (head code) of
@@ -39,7 +49,7 @@ parseDirectionCode code =
             'R' -> DRight
             c -> error $ printf "Invalid direction code %s given" c
     in
-    (direction, distance)
+    WireNode (direction, distance)
 
 parsePuzzleLines :: [String] -> [WireSequence]
 parsePuzzleLines plines =
