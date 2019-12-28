@@ -13,6 +13,7 @@ description:         Please see the README on GitHub at <https://github.com/Dess
 dependencies:
 - base >= 4.7 && < 5
 - array
+- containers
 - lens
 - text
 - vector

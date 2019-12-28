@@ -32,12 +32,14 @@ instance Show WireSequence where
 parseDirectionCode :: String -> (Direction, Word)
 parseDirectionCode code =
     let distance = (read (tail code)) in
-    case (head code) of
-        'U' -> (DUp, distance)
-        'D' -> (DDown, distance)
-        'L' -> (DLeft, distance)
-        'R' -> (DRight, distance)
-        c -> error $ printf "Invalid direction code %s given" c
+    let direction = case (head code) of
+            'U' -> DUp
+            'D' -> DDown
+            'L' -> DLeft
+            'R' -> DRight
+            c -> error $ printf "Invalid direction code %s given" c
+    in
+    (direction, distance)
 
 parsePuzzleLines :: [String] -> [WireSequence]
 parsePuzzleLines plines =
