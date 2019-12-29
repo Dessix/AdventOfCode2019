@@ -37,6 +37,17 @@ digitsSmallFirst base i =
 digits :: (Integral i) => i -> i -> [i]
 digits base = reverse . digitsSmallFirst base
 
+runLengthEncode :: (Eq a) => [a] -> [(a, Word)]
+runLengthEncode [] = []
+runLengthEncode items =
+    let
+        folder :: (Eq a) => a -> [(a, Word)] -> [(a, Word)]
+        folder x [] = [(x, 1)]
+        folder next ((x, xc) : xs) | x == next = (x, (succ xc)) : xs
+        folder next ((x, xc) : xs) = (next, 1) : (x, xc) : xs
+    in
+    foldr folder [] items
+
 hasAdjacentDuplicates :: (Eq a) => [a] -> Bool
 hasAdjacentDuplicates [] = False
 hasAdjacentDuplicates (a : []) = False
@@ -51,3 +62,8 @@ puzzlePartAPredicate a =
     let a' = digits 10 a in
     (monotonicallyIncreasing a') && (hasAdjacentDuplicates a')
 solvePuzzlePartA = [136760..595730] & filter puzzlePartAPredicate & length
+
+puzzlePartBPredicate a =
+    let a' = digits 10 a in
+    (monotonicallyIncreasing a') && (hasAdjacentDuplicates a') && (any (\(_, count) -> count == 2) (runLengthEncode a'))
+solvePuzzlePartB = [136760..595730] & filter puzzlePartBPredicate & length
