@@ -1,5 +1,6 @@
 module C03 where
 
+import Control.Arrow
 import Control.Exception
 import Control.Lens
 import Control.Monad
@@ -18,6 +19,7 @@ import Data.Map (Map)
 import qualified Data.Map as Map
 import Data.Set (Set)
 import qualified Data.Set as Set
+import qualified Data.Tuple as Tuple
 
 import Debug.Trace
 
@@ -43,8 +45,8 @@ instance Show WireSequence where
 
 parseDirectionCode :: String -> WireNode
 parseDirectionCode code =
-    let distance = (read (tail code)) in
-    let direction = case (head code) of
+    let distance = (read (tail code))
+        direction = case (head code) of
             'U' -> DUp
             'D' -> DDown
             'L' -> DLeft
@@ -55,44 +57,56 @@ parseDirectionCode code =
 
 parsePuzzleLines :: [String] -> [WireSequence]
 parsePuzzleLines plines =
-    let entriesMapper l =
+    let
+        entriesMapper l =
             let itemStrings = (T.splitOn (T.pack ",") (T.pack l)) in
             WireSequence $ map parseDirectionCode $ map T.unpack itemStrings
     in
     plines & map entriesMapper
 
 wirePositions :: (Int, Int) -> WireSequence -> [(Int, Int)]
-wirePositions start (WireSequence nodes) =
-    let genPositionsForDirection (startX, startY) dir len =
-            if len == 0 then []
-            else
-                let (dx, dy) = case dir of
-                        DUp -> (0, -1)
-                        DDown -> (0, 1)
-                        DLeft -> (-1, 0)
-                        DRight -> (1, 0)
-                in
-                let pos' = (startX + dx, startY + dy) in
-                pos' : genPositionsForDirection pos' dir (pred len)
+wirePositions _ (WireSequence []) = []
+wirePositions start (WireSequence (WireNode (dir, len) : remaining)) =
+    let
+        directionalOffset dir = case dir of
+            DUp -> (0, -1)
+            DDown -> (0, 1)
+            DLeft -> (-1, 0)
+            DRight -> (1, 0)
+        genPositionsForDirection _ _ 0 = []
+        genPositionsForDirection (startX, startY) dir len =
+            let
+                (dx, dy) = directionalOffset dir
+                pos' = (startX + dx, startY + dy) in
+            pos' : genPositionsForDirection pos' dir (pred len)
+        nextPositions = genPositionsForDirection start dir len
     in
-    case nodes of
-        (WireNode (dir, len)) : remaining ->
-            let nextPositions = genPositionsForDirection start dir len in
-                nextPositions ++ (wirePositions (last (start : nextPositions)) (WireSequence remaining))
-        [] -> []
+    nextPositions ++ (wirePositions (last (start : nextPositions)) (WireSequence remaining))
 
-findWireIntersections :: [WireSequence] -> [(Int, Int)]
+mapFirstPerKey :: (Ord k) => [(k, v)] -> Map k v
+mapFirstPerKey [] = Map.empty
+mapFirstPerKey pairs =
+    let
+        folder :: (Ord k) => Map k v -> (k, v) -> Map k v
+        folder memo (k, v) =
+            Map.insertWith (curry snd) k v memo
+    in
+    foldl' folder Map.empty pairs
+
+findWireIntersections :: [WireSequence] -> [((Int, Int), Word)]
 findWireIntersections sequences =
-    let origin = (0, 0) in
-    let wirePositions' = wirePositions origin in
-    let buildPositionSet sequence =
-            Set.fromList $ wirePositions' sequence
+    let
+        origin = (0, 0)
+        wirePositions' nodes = zip (wirePositions origin nodes) [1..]
+        buildPositionMap =
+            wirePositions' >>> mapFirstPerKey
+
+        posMaps = map buildPositionMap sequences
+        intersectionFolder a b =
+            Map.intersectionWith (+) a b
+
     in
-    let posSequences = map buildPositionSet sequences in
-    let intersectionFolder a b =
-            Set.intersection a b
-    in
-    Set.toList $ foldr1 intersectionFolder posSequences
+    Map.toList $ foldr1 intersectionFolder posMaps
 
 manhattanDistance :: (Int, Int) -> (Int, Int) -> Word
 manhattanDistance (x, y) (x', y') = fromIntegral ((abs (x' - x)) + (abs (y' - y)))
@@ -101,4 +115,4 @@ solvePuzzleFromLines :: IO ()
 solvePuzzleFromLines = do
     l <- Utils.getLinesUntilBlank
     let wireIntersections = findWireIntersections $ parsePuzzleLines l in
-        putStrLn $ printf "Solved! %d" $ minimum $ map (manhattanDistance (0, 0)) wireIntersections
+        putStrLn $ printf "Solved! %s" $ show $ minimumBy (compare `on` snd) wireIntersections
