@@ -1,23 +1,34 @@
-module C02 where
+module C04 where
 
+import Control.Arrow
 import Control.Exception
 import Control.Lens
 import Control.Monad
 import qualified Control.Monad.Fail
 import Control.Monad.ST
+
 import Data.Array.IArray
 import Data.Array.MArray
-import Data.Array.ST (STArray, STUArray)
 import qualified Data.Array.ST
+import Data.Array.ST (STUArray)
 import Data.Function
 import Data.Functor
 import Data.List
 import Data.Ratio
+import qualified Data.Vector
+import qualified Data.Text as T
+import Data.Map (Map)
+import qualified Data.Map as Map
+import Data.Set (Set)
+import qualified Data.Set as Set
+import qualified Data.Tuple as Tuple
+
 import Debug.Trace
+
 import Text.Printf
 
 import Utils
-import C01
+
 
 runIntCodeAtPositionST :: (MArray a e m, Ix e, Num e, Enum e, PrintfArg e, Num e, Integral e, Control.Monad.Fail.MonadFail m) => (a e e) -> e -> m (Maybe (a e e))
 runIntCodeAtPositionST input position =
@@ -47,6 +58,16 @@ runIntCodeAtPositionST input position =
                         writeArray input zp z'
                         traceM $ printf "%s mul %10d @ %-5d %10d @ %-5d -> %10d @ %-5d" positionString x' xp y' yp z' zp
                         runIntCodeAtPositionST input (position + 4)
+        3 -> -- from x, write to y
+            do
+            [xp, yp] <- readArraySequence input (succ position) 3
+            params <- readArrayEachInBounds input [xp]
+            case params of
+                Nothing -> return Nothing --error "Boundscheck caught"
+                Just [x'] -> do
+                    writeArray input yp x'
+                    traceM $ printf "%s set %10d @ %-5d -> %10d @ %-5d" positionString x' xp x' yp
+                    runIntCodeAtPositionST input (position + 3)
         99 -> -- Bail out
             do
             traceM $ printf "%s hcf" positionString
@@ -67,49 +88,3 @@ runIntCode input =
         mapM freeze res
         )) :: Maybe (Array Int Int) in
     liftM Data.Array.IArray.elems results
-
-
-testIntCode :: [Int] -> [Int] -> String
-testIntCode input expected =
-    let result = runIntCode input in
-    assert (result == (Just expected)) (printf "%s resulted in %s" (show input) (show expected))
-
-runtests =
-    let results = (
-            (testIntCode [1,0,0,0,99] [2,0,0,0,99]) -- 1 + 1 = 2
-            : (testIntCode [2,3,0,3,99] [2,3,0,6,99]) -- 3 * 2 = 6
-            : (testIntCode [2,4,4,5,99,0] [2,4,4,5,99,9801]) -- 99 * 99 = 9801
-            : (testIntCode [1,1,1,4,99,5,6,0,99] [30,1,1,4,2,5,6,0,99])
-            : []
-            ) in
-    (map (\result -> trace result ()) results)
-
-findIntCodeTweakWithResult :: [Int] -> Int -> [[(Int, Int)]] -> Maybe [(Int, Int)]
-findIntCodeTweakWithResult input = findIntCodeTweakWithResultArray (arrayOfList input)
-
-findIntCodeTweakWithResultArray :: Array Int Int -> Int -> [[(Int, Int)]] -> Maybe [(Int, Int)]
-findIntCodeTweakWithResultArray _ _ [] = Nothing
-findIntCodeTweakWithResultArray input desired (tweaks : rest) =
-    let output = runST (do
-        arr <- (Data.Array.ST.thaw input) :: ST s (Data.Array.ST.STUArray s Int Int)
-        mapM_ (\(pos, newValue) -> writeArray arr pos newValue) tweaks
-        runIntCodeST arr
-        resultCode <- readArray arr (0 :: Int)
-        if resultCode == desired then return (Just tweaks) else do
-            traceM (printf "ResultCode incorrect with value %d" resultCode)
-            return Nothing
-        ) in
-    case output of
-        Just tweaks -> Just tweaks
-        Nothing -> findIntCodeTweakWithResultArray input desired rest
-
-
-test1202 =
-    findIntCodeTweakWithResult [2,13,17,0, 1,0,21,0, 99,0,0,0, 2,100,0,14, 2,0,0,18, 2,0,0,22] 1202 [[(1,400)], [(17,12),(21,2)]]
-
-tweaksets =
-    let baseNumbers = sortOn (\(a, b) -> (max a b)) (cartesianProduct [0..99] [0..99]) in
-    [[(1, x), (2, y)] | (x, y) <- baseNumbers] :: [[(Int, Int)]]
-
-solvePart2 requestedNumber inputs =
-    findIntCodeTweakWithResult inputs requestedNumber tweaksets
