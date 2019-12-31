@@ -1,90 +1,146 @@
-module C04 where
+{-# LANGUAGE ApplicativeDo #-}
+{-# LANGUAGE DataKinds #-}
+{-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE GADTs #-}
+{-# LANGUAGE LambdaCase #-}
+-- {-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE TypeOperators #-}
+-- {-# LANGUAGE Rank2Types #-}
+{-# LANGUAGE PartialTypeSignatures #-}
+module C05 where
 
-import Control.Arrow
-import Control.Exception
-import Control.Lens
-import Control.Monad
+import Control.Monad.Freer
+import Control.Monad.Freer.TH
+import Control.Monad.Freer.Error
+import Control.Monad.Freer.State
+
 import qualified Control.Monad.Fail
-import Control.Monad.ST
 
-import Data.Array.IArray
-import Data.Array.MArray
-import qualified Data.Array.ST
-import Data.Array.ST (STUArray)
-import Data.Function
-import Data.Functor
 import Data.List
-import Data.Ratio
-import qualified Data.Vector
 import qualified Data.Text as T
-import Data.Map (Map)
-import qualified Data.Map as Map
-import Data.Set (Set)
-import qualified Data.Set as Set
-import qualified Data.Tuple as Tuple
-
-import Debug.Trace
+import Data.Vector (Vector)
+import Data.Vector
 
 import Text.Printf
+import Debug.Trace
 
 import Utils
 
+import Resultant
 
-runIntCodeAtPositionST :: (MArray a e m, Ix e, Num e, Enum e, PrintfArg e, Num e, Integral e, Control.Monad.Fail.MonadFail m) => (a e e) -> e -> m (Maybe (a e e))
-runIntCodeAtPositionST input position =
-    let positionString = (printf "% 8d |" position) :: String in
+
+
+data Interpreter i where
+    ReadMemory :: Int -> Interpreter Int
+    WriteMemory :: Int -> Int -> Interpreter ()
+    Input :: Interpreter Int
+    Output :: Int -> Interpreter ()
+-- makeEffect ''Interpreter
+
+readMemory' :: Member Interpreter effs => Int -> Eff effs Int
+readMemory' addr = send $ ReadMemory addr
+
+writeMemory' :: Member Interpreter effs => Int -> Int -> Eff effs ()
+writeMemory' addr value = send $ WriteMemory addr value
+
+input' :: Member Interpreter effs => Eff effs Int
+input' = send $ Input
+
+output' :: Member Interpreter effs => Int -> Eff effs ()
+output' text = send $ Output text
+
+-- runInterpreterIO :: LastMember IO i => Eff (Interpreter ': i) ~> Eff i
+-- runInterpreterIO = interpretM $ \instr -> case instr of
+--     ReadMemory a -> 
+
+-- runInterpreterInMemory :: [Int] -> Eff '[Interpreter] effs -> [Int]
+-- runInterpreterInMemory inputs req = traceShow (result, log) result
+--     where
+--         ((Right _, result), log) = run (runWriter (runState inputs (runError (reinterpret3 go req))))
+--         go :: Interpreter i -> Eff '[Error (), State [Int], Writer [Int]] i
+--         go = \case
+--             ReadMemory addr -> do
+--                 memory <- get
+--                 -- traceM (show (head memory))
+--                 tell [6 :: Int]
+--                 pure ((head memory) + 2)
+--             WriteMemory addr value -> undefined
+
+
+type MemIState = ([Int], [Int], Vector Int)
+
+go :: Interpreter i -> Eff '[Resultant [Int], State MemIState] i
+go = \case
+    ReadMemory addr -> do
+        (_, _, mem) <- (get :: Eff '[Resultant [Int], State MemIState] MemIState)
+        let
+            v = mem ! addr
+            in do
+            pure v
+    WriteMemory addr value -> do
+        (i, o, mem) <- (get :: Eff '[Resultant [Int], State MemIState] MemIState)
+        put (i, o, mem // [(addr, value)])
+    Input -> do
+        (i, o, mem) <- (get :: Eff '[Resultant [Int], State MemIState] MemIState)
+        case i of
+            x : xs -> do
+                put (xs, o, mem)
+                pure x
+            [] -> error "Insufficient inputs available for requested run"
+    Output item -> do
+        (i, o, mem) <- (get :: Eff '[Resultant [Int], State MemIState] MemIState)
+        put (i, item : o, mem)
+
+runInterpreterInMemory :: [Int] -> [Int] -> Eff '[Interpreter] effs -> (MemIState, Maybe Int)
+runInterpreterInMemory program inputs req =
+    ((inputs', outputs', state), (case result of { x : _ -> Just x ; [] -> Nothing }))
+    where
+        ((_, result), (inputs', outputs', state)) =
+            run $ runState
+                (inputs, [], Data.Vector.fromList program)
+                (runResultant $ reinterpret2 go req)
+
+
+readMemoryEach' :: (Member Interpreter r) => [Int] -> Eff r [Int]
+readMemoryEach' positions = Prelude.mapM readMemory' positions
+
+readMemorySequence' :: (Member Interpreter r) => Int -> Int -> Eff r [Int]
+readMemorySequence' start count = readMemoryEach' [start..start + count - 1]
+
+
+runInterpreterAtPosition :: Member Interpreter r => Int -> Eff r (Maybe ())
+runInterpreterAtPosition pc =
+    --let positionString = (printf "% 8d |" pc) :: String in
     do
-    opcode <- readArray input position
+    opcode <- readMemory' pc
     case opcode of
         1 -> -- from x, y, write sum to z
             do
-            [xp, yp, zp] <- readArraySequence input (succ position) 3
-            destVals <- readArrayEachInBounds input [xp, yp]
-            case destVals of
+            ~[xp, yp, zp] <- readMemorySequence' (succ pc) 3
+            destVals <- readMemoryEach' [xp, yp] -- TODO: Bounds check variant
+            case Just destVals of
                 Nothing -> return Nothing --error "Boundscheck caught"
                 Just [x', y'] -> do
                     let z' = x' + y' in do
-                        writeArray input zp z'
-                        traceM $ printf "%s add %10d @ %-5d %10d @ %-5d -> %10d @ %-5d" positionString x' xp y' yp z' zp
-                    runIntCodeAtPositionST input (position + 4)
+                        writeMemory' zp z'
+                        -- traceM $ printf "%s add %10d @ %-5d %10d @ %-5d -> %10d @ %-5d" pc x' xp y' yp z' zp
+                    runInterpreterAtPosition (pc + 4)
         2 -> -- from x, y, write product to z
             do
-            [xp, yp, zp] <- readArraySequence input (succ position) 3
-            destVals <- readArrayEachInBounds input [xp, yp]
-            case destVals of
+            ~[xp, yp, zp] <- readMemorySequence' (succ pc) 3
+            destVals <- readMemoryEach' [xp, yp] -- TODO: Bounds check variant
+            case Just destVals of
                 Nothing -> return Nothing --error "Boundscheck caught"
                 Just [x', y'] ->
                     let z' = x' * y' in do
-                        writeArray input zp z'
-                        traceM $ printf "%s mul %10d @ %-5d %10d @ %-5d -> %10d @ %-5d" positionString x' xp y' yp z' zp
-                        runIntCodeAtPositionST input (position + 4)
-        3 -> -- from x, write to y
-            do
-            [xp, yp] <- readArraySequence input (succ position) 3
-            params <- readArrayEachInBounds input [xp]
-            case params of
-                Nothing -> return Nothing --error "Boundscheck caught"
-                Just [x'] -> do
-                    writeArray input yp x'
-                    traceM $ printf "%s set %10d @ %-5d -> %10d @ %-5d" positionString x' xp x' yp
-                    runIntCodeAtPositionST input (position + 3)
+                        writeMemory' zp z'
+                        --traceM $ printf "%s mul %10d @ %-5d %10d @ %-5d -> %10d @ %-5d" positionString x' xp y' yp z' zp
+                        runInterpreterAtPosition (pc + 4)
         99 -> -- Bail out
             do
-            traceM $ printf "%s hcf" positionString
-            return (Just input)
+            --traceM $ printf "%s hcf" positionString
+            return $ Just ()
         unknown -> -- Unknown opcode
             error (printf "Opcode %d is not implemented" unknown)
 
 
-runIntCodeST :: (MArray a e m, Ix e, Num e, Enum e, PrintfArg e, Integral e, Control.Monad.Fail.MonadFail m) => (a e e) -> m (Maybe (a e e))
-runIntCodeST input = runIntCodeAtPositionST input 0
-
-runIntCode :: [Int] -> Maybe [Int]
-runIntCode input =
-    let inputAsArray = (arrayOfList input :: Array Int Int) in
-    let results = (runST (do
-        arr <- (Data.Array.ST.thaw inputAsArray :: ST s (STUArray s Int Int))
-        res <- runIntCodeST arr
-        mapM freeze res
-        )) :: Maybe (Array Int Int) in
-    liftM Data.Array.IArray.elems results

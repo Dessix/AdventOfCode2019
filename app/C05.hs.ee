@@ -1,0 +1,48 @@
+{-# LANGUAGE DataKinds #-}
+{-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE GADTs #-}
+{-# LANGUAGE LambdaCase #-}
+-- {-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE TypeApplications #-}
+{-# LANGUAGE TypeOperators #-}
+{-# LANGUAGE TypeFamilies #-}
+--{-# LANGUAGE Rank2Types #-}
+{-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE MonoLocalBinds #-}
+-- {-# LANGUAGE UndecidableInstances #-}
+module C05 where
+
+-- https://hackage.haskell.org/package/extensible-effects-5.0.0.1/docs/src/Control.Eff.Operational.Example.html#Jail
+
+import Control.Eff
+import Control.Eff.Reader.Lazy
+import Control.Eff.Writer.Lazy
+import Control.Eff.State.Lazy
+import Control.Eff.Exception
+import Control.Eff.Operational
+
+import Data.List
+import qualified Data.Text as T
+
+import Text.Printf
+import Debug.Trace
+
+data Interpreter i where
+    ReadMemory :: Int -> Interpreter Int
+
+runInterpreterInMemory :: (Member (State [Int]) r) => Interpreter i -> Eff r i
+runInterpreterInMemory (ReadMemory addr) = do
+    mem <- get
+    return (mem !! addr) 
+
+-- runInterpreterInMemory :: [Int] -> Eff '[Interpreter] effs -> [Int]
+-- runInterpreterInMemory inputs req = traceShow (result) result
+--     where
+--         (_, result) = run (runState inputs (reinterpret go req))
+--         go :: Interpreter i -> Eff '[State [Int]] i
+--         go = \case
+--             ReadMemory addr -> do
+--                 let v = 12 in do
+--                     traceM ("Value at trace: " ++ (show v))
+--                     pure v
+--             WriteMemory addr value -> undefined

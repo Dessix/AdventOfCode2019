@@ -17,6 +17,20 @@ dependencies:
 - lens
 - text
 - vector
+- freer-simple
+#- extensible-effects
+#- polysemy
+#- polysemy-plugin
+
+default-extensions:
+  DataKinds FlexibleContexts LambdaCase
+  MultiWayIf
+  TypeApplications TypeOperators TypeFamilies GADTs
+
+ghc-options:
+ - -fprint-potential-instances
+# - -fplugin=Polysemy.Plugin
+
 
 library:
   source-dirs: src

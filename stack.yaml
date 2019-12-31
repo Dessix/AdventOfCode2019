@@ -30,6 +30,12 @@ resolver: lts-14.18
 #   - wai
 packages:
 - .
+
+#extra-deps:
+#- extensible-effects-5.0.0.1@sha256:2ed0bee04c8bf334358147da6d92ff31e9fbbefceb75ef3e408a0d858aec0cc6,9013
+
+# ghc-options:
+#  $locals: -fplugin=Polysemy.Plugin
 # Dependency packages to be pulled from upstream that are not in the resolver.
 # These entries can reference officially published versions as well as
 # forks / in-progress versions pinned to a git hash. For example:

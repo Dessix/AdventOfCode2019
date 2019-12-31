@@ -2,6 +2,9 @@ module Utils where
 
 import Data.Array.IArray
 import Data.Array.MArray
+import qualified Data.Text as T
+import qualified Data.Text.Read as T.Read
+import Data.Maybe
 
 getLinesUntilBlank :: IO [String]
 getLinesUntilBlank = do
@@ -38,3 +41,16 @@ readArrayEachInBounds array positions = do
 
 readArrayPointer :: (MArray a e m, Ix e) => a e e -> e -> m e
 readArrayPointer array pointerPos = readArray array pointerPos >>= readArray array
+
+parseIntsFromStringLine :: String -> [Int]
+parseIntsFromStringLine l =
+    let
+        l' = (T.pack l)
+    in
+    concatMap ((\s ->
+        maybeToList $ if (T.length s) > 0 then Just (case ((T.Read.decimal) s) of Right (x, _) -> x) else Nothing) . T.strip) (T.splitOn (T.pack ",") l')
+
+getIntsFromConsoleUntilBlank :: IO [Int]
+getIntsFromConsoleUntilBlank = do
+    results <- (fmap (parseIntsFromStringLine)) <$> Utils.getLinesUntilBlank
+    return $ concat results

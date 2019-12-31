@@ -1,0 +1,44 @@
+{-# OPTIONS_GHC -fplugin=Polysemy.Plugin #-}
+{-# LANGUAGE DataKinds #-}
+{-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE GADTs #-}
+{-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE TypeApplications #-}
+{-# LANGUAGE TypeOperators #-}
+{-# LANGUAGE TypeFamilies #-}
+{-# LANGUAGE PolyKinds #-}
+--{-# LANGUAGE Rank2Types #-}
+-- {-# LANGUAGE UndecidableInstances #-}
+module C05 where
+
+
+import Polysemy
+import Polysemy.Input
+import Polysemy.Output
+import Polysemy.Error
+import Polysemy.Resource
+import Polysemy.State
+
+import Data.List
+import qualified Data.Text as T
+
+import Text.Printf
+import Debug.Trace
+
+data Interpreter m a where
+    ReadMemory :: Int -> Interpreter m Int
+
+makeSem ''Interpreter
+
+runInterpreterInMemory :: Member (State [Int]) r => [Int] -> Sem (Interpreter ': r) a -> Sem r ([Int], ([Int], a))
+runInterpreterInMemory inputs =
+    -- . evalState inputs
+    runState inputs
+    -- . runInputList inputs
+    . reinterpret
+        (\case
+            ReadMemory addr -> do
+                mem <- get
+                return ((head (mem::[Int])) + addr))
