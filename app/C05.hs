@@ -21,6 +21,7 @@ import Data.List
 import qualified Data.Text as T
 import Data.Vector (Vector)
 import Data.Vector
+import Data.Function ((&))
 
 import Text.Printf
 import Debug.Trace
@@ -36,6 +37,7 @@ data Interpreter i where
     WriteMemory :: Int -> Int -> Interpreter ()
     Input :: Interpreter Int
     Output :: Int -> Interpreter ()
+    SetExitCode :: Int -> Interpreter ()
 -- makeEffect ''Interpreter
 
 readMemory' :: Member Interpreter effs => Int -> Eff effs Int
@@ -49,6 +51,9 @@ input' = send $ Input
 
 output' :: Member Interpreter effs => Int -> Eff effs ()
 output' text = send $ Output text
+
+setExitCode' :: Member Interpreter effs => Int -> Eff effs ()
+setExitCode' exitCode = send $ SetExitCode exitCode
 
 -- runInterpreterIO :: LastMember IO i => Eff (Interpreter ': i) ~> Eff i
 -- runInterpreterIO = interpretM $ \instr -> case instr of
@@ -70,7 +75,7 @@ output' text = send $ Output text
 
 type MemIState = ([Int], [Int], Vector Int)
 
-go :: (Members '[ Resultant [Int], State MemIState ] effs) => Interpreter i -> Eff effs i
+go :: (Members '[ Error String, Resultant [Int], State MemIState ] effs) => Interpreter i -> Eff effs i
 go = \case
     ReadMemory addr -> do
         (_, _, mem) <- (get @MemIState)
@@ -91,15 +96,24 @@ go = \case
     Output item -> do
         (i, o, mem) <- (get @MemIState)
         put (i, item : o, mem)
+    SetExitCode exitCode -> do
+        result [exitCode]
+
 
 runInterpreterInMemory :: [Int] -> [Int] -> Eff '[Interpreter] i -> (MemIState, Maybe Int)
 runInterpreterInMemory program inputs req =
-    ((inputs', outputs', state), (case result of { x : _ -> Just x ; [] -> Nothing }))
-    where
-        ((_, result), (inputs', outputs', state)) =
-            run $ runState
-                (inputs, [], Data.Vector.fromList program)
-                (runResultant $ reinterpret2 go req)
+    let
+        result =
+            reinterpret3 go req
+            & runError @String
+            & runResultant @[Int]
+            & runState (inputs, [], Data.Vector.fromList program)
+            & run
+    in
+    case result of
+        ((Left errorMessage, _), _) -> error errorMessage
+        ((Right _, result), (inputs', outputs', state)) ->
+            ((inputs', outputs', state), (case result of { x : _ -> Just x ; [] -> Nothing }))
 
 
 readMemoryEach' :: (Member Interpreter r) => [Int] -> Eff r [Int]
