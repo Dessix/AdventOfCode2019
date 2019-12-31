@@ -5,6 +5,7 @@
 {-# LANGUAGE LambdaCase #-}
 -- {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE TypeOperators #-}
+{-# LANGUAGE TypeOperators #-}
 -- {-# LANGUAGE Rank2Types #-}
 {-# LANGUAGE PartialTypeSignatures #-}
 module C05 where
@@ -69,29 +70,29 @@ output' text = send $ Output text
 
 type MemIState = ([Int], [Int], Vector Int)
 
-go :: Interpreter i -> Eff '[Resultant [Int], State MemIState] i
+go :: (Members '[ Resultant [Int], State MemIState ] effs) => Interpreter i -> Eff effs i
 go = \case
     ReadMemory addr -> do
-        (_, _, mem) <- (get :: Eff '[Resultant [Int], State MemIState] MemIState)
+        (_, _, mem) <- (get @MemIState)
         let
             v = mem ! addr
             in do
             pure v
     WriteMemory addr value -> do
-        (i, o, mem) <- (get :: Eff '[Resultant [Int], State MemIState] MemIState)
+        (i, o, mem) <- (get @MemIState)
         put (i, o, mem // [(addr, value)])
     Input -> do
-        (i, o, mem) <- (get :: Eff '[Resultant [Int], State MemIState] MemIState)
+        (i, o, mem) <- (get @MemIState)
         case i of
             x : xs -> do
                 put (xs, o, mem)
                 pure x
             [] -> error "Insufficient inputs available for requested run"
     Output item -> do
-        (i, o, mem) <- (get :: Eff '[Resultant [Int], State MemIState] MemIState)
+        (i, o, mem) <- (get @MemIState)
         put (i, item : o, mem)
 
-runInterpreterInMemory :: [Int] -> [Int] -> Eff '[Interpreter] effs -> (MemIState, Maybe Int)
+runInterpreterInMemory :: [Int] -> [Int] -> Eff '[Interpreter] i -> (MemIState, Maybe Int)
 runInterpreterInMemory program inputs req =
     ((inputs', outputs', state), (case result of { x : _ -> Just x ; [] -> Nothing }))
     where
