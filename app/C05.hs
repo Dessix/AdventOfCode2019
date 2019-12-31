@@ -102,7 +102,7 @@ go = \case
         result [exitCode]
 
 
-runInterpreterInMemory :: [Int] -> [Int] -> Eff '[Interpreter] i -> (MemIState, Maybe Int)
+runInterpreterInMemory :: [Int] -> [Int] -> Eff '[Interpreter] i -> (MemIState, Either String (Maybe Int))
 runInterpreterInMemory program inputs req =
     let
         result =
@@ -113,9 +113,9 @@ runInterpreterInMemory program inputs req =
             & run
     in
     case result of
-        ((Left errorMessage, _), _) -> error errorMessage
+        ((Left errorMessage, _), fullState) -> (fullState, Left errorMessage)
         ((Right _, result), (inputs', outputs', state)) ->
-            ((inputs', outputs', state), (case result of { x : _ -> Just x ; [] -> Nothing }))
+            ((inputs', outputs', state), Right (case result of { x : _ -> Just x ; [] -> Nothing }))
 
 
 readMemoryEach' :: (Member Interpreter r) => [Int] -> Eff r [Int]
