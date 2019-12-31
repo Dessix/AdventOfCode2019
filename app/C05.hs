@@ -20,7 +20,7 @@ import qualified Control.Monad.Fail
 import Data.List
 import qualified Data.Text as T
 import Data.Vector (Vector)
-import Data.Vector
+import qualified Data.Vector as Vector
 import Data.Function ((&))
 
 import Text.Printf
@@ -78,23 +78,25 @@ type MemIState = ([Int], [Int], Vector Int)
 go :: (Members '[ Error String, Resultant [Int], State MemIState ] effs) => Interpreter i -> Eff effs i
 go = \case
     ReadMemory addr -> do
-        (_, _, mem) <- (get @MemIState)
-        let
-            v = mem ! addr
-            in do
-            pure v
+        (_, _, mem) <- get @MemIState
+        case mem Vector.!? addr of
+            Nothing -> throwError @String $ printf "Out of bounds memory access at address %d" addr
+            Just v -> pure v
     WriteMemory addr value -> do
-        (i, o, mem) <- (get @MemIState)
-        put (i, o, mem // [(addr, value)])
+        (i, o, mem) <- get @MemIState
+        if addr < 0 || addr > (Vector.length mem) then
+            throwError @String $ printf "Out of bounds memory write at address %d" addr
+        else
+            put (i, o, mem Vector.// [(addr, value)])
     Input -> do
-        (i, o, mem) <- (get @MemIState)
+        (i, o, mem) <- get @MemIState
         case i of
             x : xs -> do
                 put (xs, o, mem)
                 pure x
-            [] -> error "Insufficient inputs available for requested run"
+            [] -> throwError "Insufficient inputs available for requested run"
     Output item -> do
-        (i, o, mem) <- (get @MemIState)
+        (i, o, mem) <- get @MemIState
         put (i, item : o, mem)
     SetExitCode exitCode -> do
         result [exitCode]
@@ -107,7 +109,7 @@ runInterpreterInMemory program inputs req =
             reinterpret3 go req
             & runError @String
             & runResultant @[Int]
-            & runState (inputs, [], Data.Vector.fromList program)
+            & runState (inputs, [], Vector.fromList program)
             & run
     in
     case result of
