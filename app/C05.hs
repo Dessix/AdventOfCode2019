@@ -134,25 +134,19 @@ runInterpreterAtPosition pc =
         1 -> -- from x, y, write sum to z
             do
             ~[xp, yp, zp] <- readMemorySequence' (succ pc) 3
-            destVals <- readMemoryEach' [xp, yp] -- TODO: Bounds check variant
-            case Just destVals of
-                Nothing -> return Nothing --error "Boundscheck caught"
-                Just [x', y'] -> do
-                    let z' = x' + y' in do
-                        writeMemory' zp z'
-                        -- traceM $ printf "%s add %10d @ %-5d %10d @ %-5d -> %10d @ %-5d" pc x' xp y' yp z' zp
-                    runInterpreterAtPosition (pc + 4)
+            ~[x', y'] <- readMemoryEach' [xp, yp]
+            let z' = x' + y' in do
+                writeMemory' zp z'
+                -- traceM $ printf "%s add %10d @ %-5d %10d @ %-5d -> %10d @ %-5d" pc x' xp y' yp z' zp
+            runInterpreterAtPosition (pc + 4)
         2 -> -- from x, y, write product to z
             do
             ~[xp, yp, zp] <- readMemorySequence' (succ pc) 3
-            destVals <- readMemoryEach' [xp, yp] -- TODO: Bounds check variant
-            case Just destVals of
-                Nothing -> return Nothing --error "Boundscheck caught"
-                Just [x', y'] ->
-                    let z' = x' * y' in do
-                        writeMemory' zp z'
-                        --traceM $ printf "%s mul %10d @ %-5d %10d @ %-5d -> %10d @ %-5d" positionString x' xp y' yp z' zp
-                        runInterpreterAtPosition (pc + 4)
+            ~[x', y'] <- readMemoryEach' [xp, yp]
+            let z' = x' * y' in do
+                writeMemory' zp z'
+                --traceM $ printf "%s mul %10d @ %-5d %10d @ %-5d -> %10d @ %-5d" positionString x' xp y' yp z' zp
+                runInterpreterAtPosition (pc + 4)
         99 -> -- Bail out
             do
             --traceM $ printf "%s hcf" positionString
