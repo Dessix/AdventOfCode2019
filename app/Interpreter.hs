@@ -98,3 +98,8 @@ runInterpreterInMemory program inputs req =
         ((Right _, result), (inputs', outputs', state)) ->
             ((inputs', outputs', state), Right (case result of { x : _ -> Just x ; [] -> Nothing }))
 
+readMemoryEach' :: (Member Interpreter r) => [Int] -> Eff r [Int]
+readMemoryEach' positions = Prelude.mapM readMemory' positions
+
+readMemorySequence' :: (Member Interpreter r) => Int -> Int -> Eff r [Int]
+readMemorySequence' start count = readMemoryEach' [start..start + count - 1]

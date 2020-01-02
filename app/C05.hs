@@ -31,12 +31,6 @@ import Utils
 import Interpreter
 
 
-readMemoryEach' :: (Member Interpreter r) => [Int] -> Eff r [Int]
-readMemoryEach' positions = Prelude.mapM readMemory' positions
-
-readMemorySequence' :: (Member Interpreter r) => Int -> Int -> Eff r [Int]
-readMemorySequence' start count = readMemoryEach' [start..start + count - 1]
-
 type WriteAddress = Int
 type Arity = Word
 newtype ModeOverrides = ModeOverrides [(Word, ParameterMode)]
@@ -84,15 +78,6 @@ runOp (Sum2 a b outAddr) = do writeMemory' outAddr (a + b); return True
 runOp (Mul2 a b outAddr) = do writeMemory' outAddr (a * b); return True
 runOp Exit = return False
 
-
-digitsRightToLeftUnfolderR :: Int -> Maybe (Int, Int)
-digitsRightToLeftUnfolderR memo =
-    if memo > 0 then
-        Just $ let modded = memo `mod` 10 in (modded, (memo - modded) `div` 10)
-    else Nothing
-
-digitsRightToLeft :: Int -> [Int]
-digitsRightToLeft = List.unfoldr digitsRightToLeftUnfolderR
 
 parseOpInfo :: Int -> Int -> (TIntOp, Arity, [(ParameterMode, Int)])
 parseOpInfo opCodeWithModes opPosition =

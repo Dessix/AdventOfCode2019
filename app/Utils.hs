@@ -2,6 +2,7 @@ module Utils where
 
 import Data.Array.IArray
 import Data.Array.MArray
+import qualified Data.List as List
 import qualified Data.Text as T
 import qualified Data.Text.Read as T.Read
 import Data.Maybe
@@ -54,3 +55,12 @@ getIntsFromConsoleUntilBlank :: IO [Int]
 getIntsFromConsoleUntilBlank = do
     results <- (fmap (parseIntsFromStringLine)) <$> Utils.getLinesUntilBlank
     return $ concat results
+
+digitsRightToLeftUnfolderR :: Int -> Maybe (Int, Int)
+digitsRightToLeftUnfolderR memo =
+    if memo > 0 then
+        Just $ let modded = memo `mod` 10 in (modded, (memo - modded) `div` 10)
+    else Nothing
+
+digitsRightToLeft :: Int -> [Int]
+digitsRightToLeft = List.unfoldr digitsRightToLeftUnfolderR
