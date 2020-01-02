@@ -29,87 +29,7 @@ import Debug.Trace
 import Utils
 
 import Interpreter
-
-
-type WriteAddress = Int
-type Arity = Word
-newtype ModeOverrides = ModeOverrides [(Word, ParameterMode)]
-
-data ParameterMode = PositionMode | ImmediateMode | WritePseudoMode
-    deriving (Eq, Show)
-
-data TIntOp = TSum2
-            | TMul2
-            | TExit
-    deriving (Eq, Show)
-
-data IntOp = Sum2 Int Int WriteAddress
-           | Mul2 Int Int WriteAddress
-           | Exit
-    deriving (Eq, Show)
-
-parseParamMode :: Int -> ParameterMode
-parseParamMode = \case
-    0 -> PositionMode
-    1 -> ImmediateMode
-    unsupported -> error ("Unsupported parameter mode " ++ (show unsupported))
-
--- opCodeToOperation :: (Monad m) => ((ParameterMode, Int) -> m Int) -> Int -> m IntOp
-opCodeToOperation :: Int -> (TIntOp, Arity, ModeOverrides)
-opCodeToOperation = (\(op, arity, modes) -> (op, arity, ModeOverrides modes)) . \case
-    1 -> (TSum2, 3, [(2, WritePseudoMode)])
-    2 -> (TMul2, 3, [(2, WritePseudoMode)])
-    99 -> (TExit, 0, [])
-    unsupported -> error $ "No opType mapping for operation code " ++ (show unsupported)
-
-buildOp :: (Monad m) => (ParameterMode -> Int -> m Int) -> (TIntOp, Arity, [(ParameterMode, Int)]) -> m (IntOp, Arity)
-buildOp getParameterM (opType, arity, paramSpecs) = do
-    params <- mapM (uncurry getParameterM) paramSpecs
-    let op = case opType of
-            TSum2 -> let ~[a, b, outAddr] = params in return $ Sum2 a b outAddr
-            TMul2 -> let ~[a, b, outAddr] = params in return $ Mul2 a b outAddr
-            TExit -> return Exit
-        in do
-            op' <- op
-            return (op', arity)
-
-runOp :: (Member Interpreter r) => IntOp -> Eff r Bool
-runOp (Sum2 a b outAddr) = do writeMemory' outAddr (a + b); return True
-runOp (Mul2 a b outAddr) = do writeMemory' outAddr (a * b); return True
-runOp Exit = return False
-
-
-parseOpInfo :: Int -> Int -> (TIntOp, Arity, [(ParameterMode, Int)])
-parseOpInfo opCodeWithModes opPosition =
-    let
-        opCode = opCodeWithModes `mod` 100
-        (opType, arity, ModeOverrides modeOverrides) = opCodeToOperation opCode
-        arityInt :: Int
-        arityInt = fromIntegral arity
-        modes :: [ParameterMode]
-        modes = List.unfoldr (\memo -> case (digitsRightToLeftUnfolderR memo) of Just (a, b) -> Just ((parseParamMode (fromIntegral a)), b); Nothing -> Nothing) ((opCodeWithModes - opCode) `div` 100)
-        modesAtArity = take arityInt $ List.concat [modes, (List.repeat PositionMode)]
-        overriddenModes :: Vector ParameterMode
-        overriddenModes = (Vector.fromList modesAtArity) Vector.// (map (\(idx, val) -> (fromIntegral idx, val)) modeOverrides)
-        parameterPositions = map (+ opPosition) [1..arityInt]
-    in
-        (opType, arity, (zip (Vector.toList overriddenModes) parameterPositions))
-
-runInterpreterAtPosition :: Member Interpreter r => Bool -> Int -> Eff r (Maybe ())
-runInterpreterAtPosition debug pc =
-    let
-        getParam :: Member Interpreter r => ParameterMode -> Int -> Eff r Int
-        getParam PositionMode position = readMemory' position >>= readMemory'
-        getParam ImmediateMode position = readMemory' position
-        getParam WritePseudoMode position = getParam ImmediateMode position
-        positionString = (printf "% 8d |" pc) :: String
-    in do
-    opCode <- readMemory' pc
-    (op, paramCount) <- buildOp getParam $ parseOpInfo opCode pc
-
-    continue <- runOp op
-    when debug $ traceM (printf "%5d | %s" pc (show op))
-    if continue then runInterpreterAtPosition debug (pc + 1 + (fromIntegral paramCount)) else return $ Just ()
+import IntCodeInterpreter
 
 
 _testInput =
@@ -121,3 +41,38 @@ _testInput =
         111,115,1,115,10,119,1,5,119,123,1,6,123,127,1,10,127,131,1,2,131,135,1,135,10,0,99,2,14,0,0]
 
 testInterpreter = runInterpreterInMemory _testInput [] $ do { writeMemory' 1 12; writeMemory' 2 2; runInterpreterAtPosition True 0; return 0 }
+
+
+findIntCodeTweakWithResult :: [Int] -> Int -> [[(Int, Int)]] -> Maybe ([(Int, Int)], Vector Int)
+findIntCodeTweakWithResult _ _ [] = Nothing
+findIntCodeTweakWithResult input desired (tweaks : rest) =
+    let output = runInterpreterInMemory input [] $ do
+            mapM_ (\(pos, v) -> writeMemory' pos v) tweaks
+            runInterpreterAtPosition True 0
+            resultCode <- readMemory' 0
+            setExitCode' resultCode
+            return resultCode
+    in case output of
+        (_, Left err) -> do
+            traceM (printf "Error running with tweaks %s: %s" (show tweaks) err)
+            findIntCodeTweakWithResult input desired rest
+        (_, Right (Nothing)) -> do
+            traceM (printf "Never reached result assignment on tweaks %s" (show tweaks))
+            findIntCodeTweakWithResult input desired rest
+        ((i, o, state), Right (Just resultCode)) | resultCode == desired -> Just (tweaks, state)
+        (_, Right (Just _)) -> do
+            traceM (printf "Incorrect result on tweaks %s" (show tweaks))
+            findIntCodeTweakWithResult input desired rest
+
+
+test1202 =
+    findIntCodeTweakWithResult [2,13,17,0, 1,0,21,0, 99,0,0,0, 2,100,0,14, 2,0,0,18, 2,0,0,22] 1202 [[(1,400)], [(17,12),(21,2)]]
+
+
+solveDay2Part2 requestedNumber =
+    let tweaksets =
+            let baseNumbers = sortOn (\(a, b) -> (max a b)) (cartesianProduct [0..99] [0..99]) in
+            [[(1, x), (2, y)] | (x, y) <- baseNumbers] :: [[(Int, Int)]]
+    in do
+    program <- getIntsFromConsoleUntilBlank;
+    return (findIntCodeTweakWithResult program requestedNumber tweaksets)
