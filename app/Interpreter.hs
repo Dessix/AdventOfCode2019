@@ -28,7 +28,7 @@ data Interpreter i where
     WriteMemory :: Int -> Int -> Interpreter ()
     Input :: Interpreter Int
     Output :: Int -> Interpreter ()
-    SetExitCode :: Int -> Interpreter ()
+    SetExitCode :: Int -> Interpreter Int
 
 -- makeEffect ''Interpreter
 
@@ -44,7 +44,7 @@ input' = send $ Input
 output' :: Member Interpreter effs => Int -> Eff effs ()
 output' text = send $ Output text
 
-setExitCode' :: Member Interpreter effs => Int -> Eff effs ()
+setExitCode' :: Member Interpreter effs => Int -> Eff effs Int
 setExitCode' exitCode = send $ SetExitCode exitCode
 
 -- -----------------------------------------------------------------------
@@ -81,6 +81,7 @@ go = \case
         put (i, item : o, mem)
     SetExitCode exitCode -> do
         result [exitCode]
+        return exitCode
 
 
 runInterpreterInMemory :: [Int] -> [Int] -> Eff '[Interpreter] i -> (MemIState, Either String (Maybe Int))

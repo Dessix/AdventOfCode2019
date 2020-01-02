@@ -42,6 +42,19 @@ _testInput =
 
 testInterpreter = runInterpreterInMemory _testInput [] $ do { writeMemory' 1 12; writeMemory' 2 2; runInterpreterAtPosition True 0; return 0 }
 
+runDiagnosticsEngine consoleInputs = do
+    program <- getIntsFromConsoleUntilBlank;
+    case
+        runInterpreterInMemory program consoleInputs $ do
+            runInterpreterAtPosition True 0
+            setExitCode' 0
+        of
+            (_, Left e) -> error (printf "Diagnostic run failed with error: %s" e)
+            ((i, o, _), Right res) -> (printf "Diagnostic run succeeded with result %s and outputs: %s" (show res) (show o))
+
+
+
+
 
 findIntCodeTweakWithResult :: [Int] -> Int -> [[(Int, Int)]] -> Maybe ([(Int, Int)], Vector Int)
 findIntCodeTweakWithResult _ _ [] = Nothing
@@ -51,7 +64,6 @@ findIntCodeTweakWithResult input desired (tweaks : rest) =
             runInterpreterAtPosition True 0
             resultCode <- readMemory' 0
             setExitCode' resultCode
-            return resultCode
     in case output of
         (_, Left err) -> do
             traceM (printf "Error running with tweaks %s: %s" (show tweaks) err)

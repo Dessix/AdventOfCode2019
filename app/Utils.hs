@@ -49,7 +49,7 @@ parseIntsFromStringLine l =
         l' = (T.pack l)
     in
     concatMap ((\s ->
-        maybeToList $ if (T.length s) > 0 then Just (case ((T.Read.decimal) s) of Right (x, _) -> x) else Nothing) . T.strip) (T.splitOn (T.pack ",") l')
+        maybeToList $ if (T.length s) > 0 then Just (case ((T.Read.signed T.Read.decimal) s) of Right (x, _) -> x) else Nothing) . T.strip) (T.splitOn (T.pack ",") l')
 
 getIntsFromConsoleUntilBlank :: IO [Int]
 getIntsFromConsoleUntilBlank = do

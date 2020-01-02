@@ -40,11 +40,15 @@ data ParameterMode = PositionMode | ImmediateMode | WritePseudoMode
 
 data TIntOp = TSum2
             | TMul2
+            | TReadInt
+            | TWriteInt
             | TExit
     deriving (Eq, Show)
 
 data IntOp = Sum2 Int Int WriteAddress
            | Mul2 Int Int WriteAddress
+           | ReadInt WriteAddress
+           | WriteInt Int
            | Exit
     deriving (Eq, Show)
 
@@ -59,6 +63,8 @@ opCodeToOperation :: Int -> (TIntOp, Arity, ModeOverrides)
 opCodeToOperation = (\(op, arity, modes) -> (op, arity, ModeOverrides modes)) . \case
     1 -> (TSum2, 3, [(2, WritePseudoMode)])
     2 -> (TMul2, 3, [(2, WritePseudoMode)])
+    3 -> (TReadInt, 1, [(0, WritePseudoMode)])
+    4 -> (TWriteInt, 1, [])
     99 -> (TExit, 0, [])
     unsupported -> error $ "No opType mapping for operation code " ++ (show unsupported)
 
@@ -68,6 +74,8 @@ buildOp getParameterM (opType, arity, paramSpecs) = do
     let op = case opType of
             TSum2 -> let ~[a, b, outAddr] = params in return $ Sum2 a b outAddr
             TMul2 -> let ~[a, b, outAddr] = params in return $ Mul2 a b outAddr
+            TReadInt -> let ~[outAddr] = params in return $ ReadInt outAddr
+            TWriteInt -> let ~[a] = params in return $ WriteInt a
             TExit -> return Exit
         in do
             op' <- op
@@ -76,6 +84,8 @@ buildOp getParameterM (opType, arity, paramSpecs) = do
 runOp :: (Member Interpreter r) => IntOp -> Eff r Bool
 runOp (Sum2 a b outAddr) = do writeMemory' outAddr (a + b); return True
 runOp (Mul2 a b outAddr) = do writeMemory' outAddr (a * b); return True
+runOp (ReadInt outAddr) = do v <- input'; writeMemory' outAddr v; return True
+runOp (WriteInt a) = do output' a; return True
 runOp Exit = return False
 
 
