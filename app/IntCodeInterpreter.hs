@@ -42,6 +42,10 @@ data TIntOp = TSum2
             | TMul2
             | TReadInt
             | TWriteInt
+            | TJmpNZ
+            | TJmpZ
+            | TLessThan
+            | TEqual
             | TExit
     deriving (Eq, Show)
 
@@ -49,6 +53,10 @@ data IntOp = Sum2 Int Int WriteAddress
            | Mul2 Int Int WriteAddress
            | ReadInt WriteAddress
            | WriteInt Int
+           | JmpNZ Int Int
+           | JmpZ Int Int
+           | LessThan Int Int WriteAddress
+           | Equal Int Int WriteAddress
            | Exit
     deriving (Eq, Show)
 
@@ -65,6 +73,10 @@ opCodeToOperation = (\(op, arity, modes) -> (op, arity, ModeOverrides modes)) . 
     2 -> (TMul2, 3, [(2, WritePseudoMode)])
     3 -> (TReadInt, 1, [(0, WritePseudoMode)])
     4 -> (TWriteInt, 1, [])
+    5 -> (TJmpNZ, 2, [])
+    6 -> (TJmpZ, 2, [])
+    7 -> (TLessThan, 3, [(2, WritePseudoMode)])
+    8 -> (TEqual, 3, [(2, WritePseudoMode)])
     99 -> (TExit, 0, [])
     unsupported -> error $ "No opType mapping for operation code " ++ (show unsupported)
 
@@ -76,17 +88,28 @@ buildOp getParameterM (opType, arity, paramSpecs) = do
             TMul2 -> let ~[a, b, outAddr] = params in return $ Mul2 a b outAddr
             TReadInt -> let ~[outAddr] = params in return $ ReadInt outAddr
             TWriteInt -> let ~[a] = params in return $ WriteInt a
+            TJmpNZ -> let ~[a, b] = params in return $ JmpNZ a b
+            TJmpZ -> let ~[a, b] = params in return $ JmpZ a b
+            TLessThan -> let ~[a, b, outAddr] = params in return $ LessThan a b outAddr
+            TEqual -> let ~[a, b, outAddr] = params in return $ Equal a b outAddr
             TExit -> return Exit
         in do
             op' <- op
             return (op', arity)
 
-runOp :: (Member Interpreter r) => IntOp -> Eff r Bool
-runOp (Sum2 a b outAddr) = do writeMemory' outAddr (a + b); return True
-runOp (Mul2 a b outAddr) = do writeMemory' outAddr (a * b); return True
-runOp (ReadInt outAddr) = do v <- input'; writeMemory' outAddr v; return True
-runOp (WriteInt a) = do output' a; return True
-runOp Exit = return False
+runOp :: (Member Interpreter r) => Int -> Int -> IntOp -> Eff r (Maybe Int)
+runOp pc arity op =
+    let defaultNextPos = Just $ pc + 1 + arity
+    in case op of
+    (Sum2 a b outAddr) -> do writeMemory' outAddr (a + b); return defaultNextPos
+    (Mul2 a b outAddr) -> do writeMemory' outAddr (a * b); return defaultNextPos
+    (ReadInt outAddr) -> do v <- input'; writeMemory' outAddr v; return defaultNextPos
+    (WriteInt a) -> do output' a; return defaultNextPos
+    (JmpNZ a b) -> return $ if a /= 0 then Just b else defaultNextPos
+    (JmpZ a b) -> return $ if a == 0 then Just b else defaultNextPos
+    (LessThan a b outAddr) -> do writeMemory' outAddr (if a < b then 1 else 0); return defaultNextPos
+    (Equal a b outAddr) -> do writeMemory' outAddr (if a == b then 1 else 0); return defaultNextPos
+    Exit -> return Nothing
 
 
 parseOpInfo :: Int -> Int -> (TIntOp, Arity, [(ParameterMode, Int)])
@@ -117,6 +140,8 @@ runInterpreterAtPosition debug pc =
     opCode <- readMemory' pc
     (op, paramCount) <- buildOp getParam $ parseOpInfo opCode pc
 
-    continue <- runOp op
     when debug $ traceM (printf "%5d | %s" pc (show op))
-    if continue then runInterpreterAtPosition debug (pc + 1 + (fromIntegral paramCount)) else return $ Just ()
+    maybeNextPosition <- runOp pc (fromIntegral paramCount) op
+    case maybeNextPosition of
+        Nothing -> return $ Just ()
+        Just nextPosition -> runInterpreterAtPosition debug nextPosition
