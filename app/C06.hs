@@ -20,6 +20,7 @@ import Data.Function ((&))
 import Data.List
 import qualified Data.List as List
 import qualified Data.Text as T
+import qualified Data.Text.Lazy as TL
 import Data.Map (Map)
 import qualified Data.Map as Map
 import Data.Vector (Vector)
@@ -36,8 +37,15 @@ import qualified Algebra.Graph.ToGraph as TG
 import Data.Tree
 -- import Algebra.Graph.AdjacencyIntMap
 
+import Algebra.Graph.Export.Dot
+import Data.GraphViz.Types (parseDotGraphLiberally)
+import Data.GraphViz.Types.Canonical (DotGraph)
+import Data.GraphViz.Commands
+
 import Text.Printf
 import Debug.Trace
+import Control.Concurrent (forkIO)
+import qualified GHC.Conc.Sync (ThreadId)
 
 import Utils
 
@@ -48,7 +56,7 @@ parseOrbitMapLines mapLines =
         splitItem item =
             let ~(start : end : _) = T.splitOn ")" item in (start, end)
     in
-     AM.edges $ map (splitItem) mapLines
+    AM.edges $ map (splitItem) mapLines
 
 parseOrbitMap :: T.Text -> AM.AdjacencyMap T.Text
 parseOrbitMap mapStr = parseOrbitMapLines $ T.lines mapStr
@@ -67,4 +75,19 @@ totalTipDepth root g =
 
 gr = AM.edges ([("B","C"),("B","G"),("C","D"),("COM","B"),("D","E"),("D","I"),("E","F"),("E","J"),("G","H"),("J","K"),("K","L")] :: [(T.Text, T.Text)])
 readGraphFromConsole = Utils.getLinesUntilBlank >>= (return . parseOrbitMapLines . (map T.pack))
+
+graphStyle :: Style T.Text String
+graphStyle =
+    Style {
+        graphName               = "Example"
+        , preamble                = [""]
+        , graphAttributes         = ["label" := "Example", "labelloc" := "top"]
+        , defaultVertexAttributes = ["shape" := "circle"]
+        , defaultEdgeAttributes   = mempty
+        , vertexName              = \x   -> (T.unpack x)
+        , vertexAttributes        = \x   -> ["color" := "blue"   ]
+        , edgeAttributes          = \x y -> ["style" := "dashed" ] }
+
+drawGraph :: (ToGraph g, ToVertex g ~ T.Text) => g -> IO GHC.Conc.Sync.ThreadId
+drawGraph g = forkIO $ runGraphvizCanvas' ((parseDotGraphLiberally $ TL.pack $ export graphStyle g) :: DotGraph String) Xlib
 

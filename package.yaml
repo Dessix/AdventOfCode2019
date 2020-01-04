@@ -15,6 +15,7 @@ dependencies:
 - algebraic-graphs
 - array
 - containers
+- graphviz
 - lens
 - text
 - vector
