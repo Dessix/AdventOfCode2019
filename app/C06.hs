@@ -73,6 +73,38 @@ totalTipDepth root g =
     in
     countTips $ TG.dfsForestFrom [root] g
 
+findAncestorsOfNode :: (ToGraph t, Ord (ToVertex t)) => t -> (ToVertex t) -> [ToVertex t]
+findAncestorsOfNode transposedGraph node = TG.dfs [node] transposedGraph
+
+safeHead :: [a] -> Maybe a
+safeHead [] = Nothing
+safeHead (x : xs) = Just x
+
+headsMatch :: (Eq t) => [[t]] -> Bool
+headsMatch items = allEq $ map safeHead items
+
+allEq :: Eq a => [a] -> Bool
+allEq [] = True
+allEq (x : []) = True
+allEq (x : y : xs) = if x == y then allEq (y : xs) else False
+
+
+
+
+findLimitedTransposedDagCommonAncestor :: (Eq v, Ord v) => AdjacencyMap v -> [v] -> Maybe v
+findLimitedTransposedDagCommonAncestor _ [] = Nothing
+findLimitedTransposedDagCommonAncestor g children =
+    let
+        rootTrees = map (reverse . findAncestorsOfNode g) children
+        matching = takeWhile (\x -> (allEq x) && x /= [] && (head x) /= Nothing) $ List.transpose $ map (\l -> List.concat [(map Just l), (List.repeat Nothing)]) rootTrees
+    in
+    if matching == [] then Nothing
+    else
+        head $ last matching
+
+
+
+
 gr = AM.edges ([("B","C"),("B","G"),("C","D"),("COM","B"),("D","E"),("D","I"),("E","F"),("E","J"),("G","H"),("J","K"),("K","L")] :: [(T.Text, T.Text)])
 readGraphFromConsole = Utils.getLinesUntilBlank >>= (return . parseOrbitMapLines . (map T.pack))
 
