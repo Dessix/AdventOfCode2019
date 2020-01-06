@@ -17,6 +17,7 @@ dependencies:
 - containers
 - graphviz
 - lens
+- search-algorithms
 - text
 - vector
 - freer-simple

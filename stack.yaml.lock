@@ -3,7 +3,21 @@
 # For more information, please see the documentation at:
 #   https://docs.haskellstack.org/en/stable/lock_files
 
-packages: []
+packages:
+- completed:
+    hackage: extensible-effects-5.0.0.1@sha256:2ed0bee04c8bf334358147da6d92ff31e9fbbefceb75ef3e408a0d858aec0cc6,9013
+    pantry-tree:
+      size: 3306
+      sha256: 4c520f1ccb76ed1d304cb5967e6679e31c907d3c0ba5d7e4a459e827b9a08173
+  original:
+    hackage: extensible-effects-5.0.0.1@sha256:2ed0bee04c8bf334358147da6d92ff31e9fbbefceb75ef3e408a0d858aec0cc6,9013
+- completed:
+    hackage: search-algorithms-0.3.1@sha256:83d487688e79f7d354a638d893364cd34cb01352cac9281734c27ee640e31925,1825
+    pantry-tree:
+      size: 450
+      sha256: 1e007eb17329ea5b2bf9efc801fc8d2daa97040d19db4b8274b4743ee145df8b
+  original:
+    hackage: search-algorithms-0.3.1@sha256:83d487688e79f7d354a638d893364cd34cb01352cac9281734c27ee640e31925,1825
 snapshots:
 - completed:
     size: 524789

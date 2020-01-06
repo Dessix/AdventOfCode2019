@@ -25,7 +25,6 @@ import Data.Map (Map)
 import qualified Data.Map as Map
 import Data.Vector (Vector)
 import qualified Data.Vector as Vector
--- import Algebra.Graph.Class
 import qualified Algebra.Graph.Class as G
 import qualified Algebra.Graph.HigherKinded.Class as GHK
 import qualified Algebra.Graph.Labelled as LG
@@ -34,8 +33,8 @@ import qualified Algebra.Graph.AdjacencyMap as AM
 import qualified Algebra.Graph.AdjacencyMap.Algorithm as AMA
 import Algebra.Graph.ToGraph (ToGraph (..))
 import qualified Algebra.Graph.ToGraph as TG
+import Algorithm.Search as Search
 import Data.Tree
--- import Algebra.Graph.AdjacencyIntMap
 
 import Algebra.Graph.Export.Dot
 import Data.GraphViz.Types (parseDotGraphLiberally)
@@ -50,76 +49,13 @@ import qualified GHC.Conc.Sync (ThreadId)
 import Utils
 
 
-parseOrbitMapLines :: [T.Text] -> AM.AdjacencyMap T.Text
-parseOrbitMapLines mapLines =
-    let
-        splitItem item =
-            let ~(start : end : _) = T.splitOn ")" item in (start, end)
-    in
-    AM.edges $ map (splitItem) mapLines
-
-parseOrbitMap :: T.Text -> AM.AdjacencyMap T.Text
-parseOrbitMap mapStr = parseOrbitMapLines $ T.lines mapStr
-
 --findGraphSinks :: (Graph g, Hashable v, Eq v, Ord v) -> g v e -> 
-
-totalTipDepth :: (Ord t) => t -> AdjacencyMap t -> Int
-totalTipDepth root g =
-    let
-        folder :: [[Int]] -> [Int] -- Count orbits backward from every system, including intermediates
-        folder memos = (0::Int) : (concatMap (map succ) memos)
-        countTips :: Forest a -> Int
-        countTips a = sum $ concatMap (foldTree (\_ a -> folder a)) a
-    in
-    countTips $ TG.dfsForestFrom [root] g
-
-findAncestorsOfNode :: (ToGraph t, Ord (ToVertex t)) => t -> (ToVertex t) -> [ToVertex t]
-findAncestorsOfNode transposedGraph node = TG.dfs [node] transposedGraph
-
-safeHead :: [a] -> Maybe a
-safeHead [] = Nothing
-safeHead (x : xs) = Just x
-
-headsMatch :: (Eq t) => [[t]] -> Bool
-headsMatch items = allEq $ map safeHead items
-
-allEq :: Eq a => [a] -> Bool
-allEq [] = True
-allEq (x : []) = True
-allEq (x : y : xs) = if x == y then allEq (y : xs) else False
-
-
-
-
-findLimitedTransposedDagCommonAncestor :: (Eq v, Ord v) => AdjacencyMap v -> [v] -> Maybe v
-findLimitedTransposedDagCommonAncestor _ [] = Nothing
-findLimitedTransposedDagCommonAncestor g children =
-    let
-        rootTrees = map (reverse . findAncestorsOfNode g) children
-        matching = takeWhile (\x -> (allEq x) && x /= [] && (head x) /= Nothing) $ List.transpose $ map (\l -> List.concat [(map Just l), (List.repeat Nothing)]) rootTrees
-    in
-    if matching == [] then Nothing
-    else
-        head $ last matching
-
-
 
 
 gr = AM.edges ([("B","C"),("B","G"),("C","D"),("COM","B"),("D","E"),("D","I"),("E","F"),("E","J"),("G","H"),("J","K"),("K","L")] :: [(T.Text, T.Text)])
-readGraphFromConsole = Utils.getLinesUntilBlank >>= (return . parseOrbitMapLines . (map T.pack))
 
-graphStyle :: Style T.Text String
-graphStyle =
-    Style {
-        graphName               = "Example"
-        , preamble                = [""]
-        , graphAttributes         = ["label" := "Example", "labelloc" := "top"]
-        , defaultVertexAttributes = ["shape" := "circle"]
-        , defaultEdgeAttributes   = mempty
-        , vertexName              = \x   -> (T.unpack x)
-        , vertexAttributes        = \x   -> ["color" := "blue"   ]
-        , edgeAttributes          = \x y -> ["style" := "dashed" ] }
-
-drawGraph :: (ToGraph g, ToVertex g ~ T.Text) => g -> IO GHC.Conc.Sync.ThreadId
-drawGraph g = forkIO $ runGraphvizCanvas' ((parseDotGraphLiberally $ TL.pack $ export graphStyle g) :: DotGraph String) Xlib
-
+solveSantaPuzzle = do
+    orbitMap <- readOrbitMapFromConsole
+    case pathBetweenNodes (AM.symmetricClosure orbitMap) (T.pack "YOU") (T.pack "SAN") of
+        Just (cost, path) -> return $ cost - 2
+        Nothing -> fail "No path available"

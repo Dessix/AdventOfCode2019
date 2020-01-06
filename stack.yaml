@@ -31,8 +31,9 @@ resolver: lts-14.18
 packages:
 - .
 
-#extra-deps:
-#- extensible-effects-5.0.0.1@sha256:2ed0bee04c8bf334358147da6d92ff31e9fbbefceb75ef3e408a0d858aec0cc6,9013
+extra-deps:
+- extensible-effects-5.0.0.1@sha256:2ed0bee04c8bf334358147da6d92ff31e9fbbefceb75ef3e408a0d858aec0cc6,9013
+- search-algorithms-0.3.1@sha256:83d487688e79f7d354a638d893364cd34cb01352cac9281734c27ee640e31925,1825
 
 # ghc-options:
 #  $locals: -fplugin=Polysemy.Plugin
