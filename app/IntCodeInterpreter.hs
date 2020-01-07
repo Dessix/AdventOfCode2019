@@ -128,7 +128,7 @@ parseOpInfo opCodeWithModes opPosition =
     in
         (opType, arity, (zip (Vector.toList overriddenModes) parameterPositions))
 
-runInterpreterAtPosition :: Member Interpreter r => Bool -> Int -> Eff r (Maybe ())
+runInterpreterAtPosition :: Member Interpreter r => Bool -> Int -> Eff r (Maybe Int)
 runInterpreterAtPosition debug pc =
     let
         getParam :: Member Interpreter r => ParameterMode -> Int -> Eff r Int
@@ -143,5 +143,12 @@ runInterpreterAtPosition debug pc =
     when debug $ traceM (printf "%5d | %s" pc (show op))
     maybeNextPosition <- runOp pc (fromIntegral paramCount) op
     case maybeNextPosition of
-        Nothing -> return $ Just ()
-        Just nextPosition -> runInterpreterAtPosition debug nextPosition
+        Nothing -> return $ Nothing
+        Just nextPosition -> return $ Just nextPosition
+
+runInterpreterAtPositionNoSurfacing :: Member Interpreter r => Bool -> Int -> Eff r ()
+runInterpreterAtPositionNoSurfacing debug pc = do
+    res <- runInterpreterAtPosition debug pc
+    case res of
+        Just next -> runInterpreterAtPositionNoSurfacing debug next
+        Nothing -> return ()

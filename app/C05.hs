@@ -40,13 +40,13 @@ _testInput =
         87,13,91,2,91,10,95,1,6,95,99,1,99,13,103,1,13,103,107,2,107,10,111,1,9,
         111,115,1,115,10,119,1,5,119,123,1,6,123,127,1,10,127,131,1,2,131,135,1,135,10,0,99,2,14,0,0]
 
-testInterpreter = runInterpreterInMemory _testInput [] $ do { writeMemory' 1 12; writeMemory' 2 2; runInterpreterAtPosition True 0; return 0 }
+testInterpreter = runInterpreterInMemory _testInput [] $ do { writeMemory' 1 12; writeMemory' 2 2; runInterpreterAtPositionNoSurfacing True 0; return 0 }
 
 runDiagnosticsEngine consoleInputs = do
     program <- getIntsFromConsoleUntilBlank;
     case
         runInterpreterInMemory program consoleInputs $ do
-            runInterpreterAtPosition True 0
+            runInterpreterAtPositionNoSurfacing True 0
             setExitCode' 0
         of
             (_, Left e) -> error (printf "Diagnostic run failed with error: %s" e)
@@ -61,7 +61,7 @@ findIntCodeTweakWithResult _ _ [] = Nothing
 findIntCodeTweakWithResult input desired (tweaks : rest) =
     let output = runInterpreterInMemory input [] $ do
             mapM_ (\(pos, v) -> writeMemory' pos v) tweaks
-            runInterpreterAtPosition True 0
+            runInterpreterAtPositionNoSurfacing True 0
             resultCode <- readMemory' 0
             setExitCode' resultCode
     in case output of
