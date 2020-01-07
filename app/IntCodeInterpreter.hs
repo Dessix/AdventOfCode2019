@@ -120,7 +120,7 @@ parseOpInfo opCodeWithModes opPosition =
         arityInt :: Int
         arityInt = fromIntegral arity
         modes :: [ParameterMode]
-        modes = List.unfoldr (\memo -> case (digitsRightToLeftUnfolderR memo) of Just (a, b) -> Just ((parseParamMode (fromIntegral a)), b); Nothing -> Nothing) ((opCodeWithModes - opCode) `div` 100)
+        modes = List.unfoldr (\memo ->        (digitsRightToLeftUnfolderR memo) >>= (\(a, b) -> Just ((parseParamMode (fromIntegral a)), b))) ((opCodeWithModes - opCode) `div` 100)
         modesAtArity = take arityInt $ List.concat [modes, (List.repeat PositionMode)]
         overriddenModes :: Vector ParameterMode
         overriddenModes = (Vector.fromList modesAtArity) Vector.// (map (\(idx, val) -> (fromIntegral idx, val)) modeOverrides)

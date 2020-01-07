@@ -39,6 +39,7 @@ import Data.GraphViz.Commands
 
 import Control.Concurrent (forkIO)
 import qualified GHC.Conc.Sync (ThreadId)
+import FreerUtils
 
 getLinesUntilBlank :: IO [String]
 getLinesUntilBlank = do
@@ -119,6 +120,9 @@ asOverlappingPairs = zip <*> tail
 allEq :: Eq a => [a] -> Bool
 allEq = (all (uncurry (==))) . asOverlappingPairs
 
+foldlMaybe :: (a -> b -> Maybe a) -> a -> [b] -> Maybe a
+foldlMaybe f a bs =
+   foldr (\b g x -> f x b >>= g) Just bs a
 
 -- Graph utilities
 
@@ -180,5 +184,3 @@ pathBetweenNodes g start dest =
     (\_ _ -> 1)
     (\vert -> vert == dest)
     start
-
-
