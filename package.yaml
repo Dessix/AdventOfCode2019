@@ -22,7 +22,7 @@ dependencies:
 - vector
 - freer-simple
 # - graphite
-#- extensible-effects
+- extensible-effects
 #- polysemy
 #- polysemy-plugin
 
