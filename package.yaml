@@ -23,8 +23,9 @@ dependencies:
 - freer-simple
 # - graphite
 - extensible-effects
-#- polysemy
-#- polysemy-plugin
+- polysemy
+- polysemy-plugin
+- polysemy-zoo
 
 default-extensions:
   DataKinds FlexibleContexts LambdaCase
@@ -33,7 +34,7 @@ default-extensions:
 
 ghc-options:
  - -fprint-potential-instances
-# - -fplugin=Polysemy.Plugin
+ - -fplugin=Polysemy.Plugin
 
 
 library:
