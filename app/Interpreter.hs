@@ -60,11 +60,15 @@ readMemorySequence' start count = readMemoryEach' [start..start + count - 1]
 
 type MemIState = ([Int], [Int], Vector Int)
 
+-- interpretInstruction :: Interpreter m i 
+-- interpretInstruction instruction state =
 
--- runAdventPure :: [Int] -> Sem '[Interpreter] a -> Sem '[] (MemIState, a)
-runAdventPure :: [Int] -> [Int] -> Sem (Interpreter ': r) a -> Sem r (MemIState, Either String a)
-runAdventPure program inputs =
-  runState (inputs, [], Vector.fromList program)
+buildInterpreterInitialState :: [Int] -> [Int] -> MemIState
+buildInterpreterInitialState program inputs = (inputs, [], Vector.fromList program)
+
+resumeInterpreterInMemoryInternal :: MemIState -> Sem (Interpreter ': r) a -> Sem r (MemIState, Either String a)
+resumeInterpreterInMemoryInternal initialState =
+  runState initialState
   . runError
   . reinterpret2 \case
     ReadMemory addr -> do
@@ -89,11 +93,18 @@ runAdventPure program inputs =
       (i, o, mem) <- get @MemIState
       put (i, item : o, mem)
 
+-- runInterpreterInMemoryInternal :: [Int] -> Sem '[Interpreter] a -> Sem '[] (MemIState, a)
+runInterpreterInMemoryInternal :: [Int] -> [Int] -> Sem (Interpreter ': r) a -> Sem r (MemIState, Either String a)
+runInterpreterInMemoryInternal program inputs =
+  resumeInterpreterInMemoryInternal $ buildInterpreterInitialState program inputs
 
 runInterpreterInMemory :: [Int] -> [Int] -> Sem '[Interpreter] a -> (MemIState, Either String a)
 runInterpreterInMemory program input =
-  run . runAdventPure program input
+  run . runInterpreterInMemoryInternal program input
 
+resumeInterpreterInMemory :: MemIState -> Sem '[Interpreter] a -> (MemIState, Either String a)
+resumeInterpreterInMemory state =
+  run . resumeInterpreterInMemoryInternal state
 
 -- runInterpreterIO :: LastMember IO i => Eff (Interpreter ': i) ~> Eff i
 -- runInterpreterIO = interpretM $ \instr -> case instr of

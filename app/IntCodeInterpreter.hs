@@ -127,8 +127,8 @@ parseOpInfo opCodeWithModes opPosition =
     in
         (opType, arity, (zip (Vector.toList overriddenModes) parameterPositions))
 
-runInterpreterAtPosition :: Member Interpreter r => Bool -> Int -> Sem r (Maybe Int)
-runInterpreterAtPosition debug pc =
+runInterpreterAtPositionYielding :: Member Interpreter r => Bool -> Int -> Sem r (Maybe Int)
+runInterpreterAtPositionYielding debug pc =
     let
         getParam :: Member Interpreter r => ParameterMode -> Int -> Sem r Int
         getParam PositionMode position = readMemory' position >>= readMemory'
@@ -145,9 +145,9 @@ runInterpreterAtPosition debug pc =
         Nothing -> return $ Nothing
         Just nextPosition -> return $ Just nextPosition
 
-runInterpreterAtPositionNoSurfacing :: Member Interpreter r => Bool -> Int -> Sem r ()
-runInterpreterAtPositionNoSurfacing debug pc = do
-    res <- runInterpreterAtPosition debug pc
+runInterpreterAtPosition :: Member Interpreter r => Bool -> Int -> Sem r ()
+runInterpreterAtPosition debug pc = do
+    res <- runInterpreterAtPositionYielding debug pc
     case res of
-        Just next -> runInterpreterAtPositionNoSurfacing debug next
+        Just next -> runInterpreterAtPosition debug next
         Nothing -> return ()
