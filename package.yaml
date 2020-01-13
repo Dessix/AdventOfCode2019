@@ -20,9 +20,7 @@ dependencies:
 - search-algorithms
 - text
 - vector
-- freer-simple
 # - graphite
-- extensible-effects
 - polysemy
 - polysemy-plugin
 - polysemy-zoo

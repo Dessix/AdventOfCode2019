@@ -12,8 +12,7 @@
 module IntCodeInterpreter where
 
 import Control.Monad (when, unless)
-import Control.Monad.Freer
-
+import Polysemy
 import qualified Control.Monad.Fail
 
 import Data.List
@@ -97,7 +96,7 @@ buildOp getParameterM (opType, arity, paramSpecs) = do
             op' <- op
             return (op', arity)
 
-runOp :: (Member Interpreter r) => Int -> Int -> IntOp -> Eff r (Maybe Int)
+runOp :: Member Interpreter r => Int -> Int -> IntOp -> Sem r (Maybe Int)
 runOp pc arity op =
     let defaultNextPos = Just $ pc + 1 + arity
     in case op of
@@ -128,10 +127,10 @@ parseOpInfo opCodeWithModes opPosition =
     in
         (opType, arity, (zip (Vector.toList overriddenModes) parameterPositions))
 
-runInterpreterAtPosition :: Member Interpreter r => Bool -> Int -> Eff r (Maybe Int)
+runInterpreterAtPosition :: Member Interpreter r => Bool -> Int -> Sem r (Maybe Int)
 runInterpreterAtPosition debug pc =
     let
-        getParam :: Member Interpreter r => ParameterMode -> Int -> Eff r Int
+        getParam :: Member Interpreter r => ParameterMode -> Int -> Sem r Int
         getParam PositionMode position = readMemory' position >>= readMemory'
         getParam ImmediateMode position = readMemory' position
         getParam WritePseudoMode position = getParam ImmediateMode position
@@ -146,7 +145,7 @@ runInterpreterAtPosition debug pc =
         Nothing -> return $ Nothing
         Just nextPosition -> return $ Just nextPosition
 
-runInterpreterAtPositionNoSurfacing :: Member Interpreter r => Bool -> Int -> Eff r ()
+runInterpreterAtPositionNoSurfacing :: Member Interpreter r => Bool -> Int -> Sem r ()
 runInterpreterAtPositionNoSurfacing debug pc = do
     res <- runInterpreterAtPosition debug pc
     case res of

@@ -12,7 +12,6 @@
 module C05 where
 
 import Control.Monad (when, unless)
-import Control.Monad.Freer
 
 import qualified Control.Monad.Fail
 
@@ -47,7 +46,7 @@ runDiagnosticsEngine consoleInputs = do
     case
         runInterpreterInMemory program consoleInputs $ do
             runInterpreterAtPositionNoSurfacing True 0
-            setExitCode' 0
+            return 0
         of
             (_, Left e) -> error (printf "Diagnostic run failed with error: %s" e)
             ((i, o, _), Right res) -> (printf "Diagnostic run succeeded with result %s and outputs: %s" (show res) (show o))
@@ -63,16 +62,13 @@ findIntCodeTweakWithResult input desired (tweaks : rest) =
             mapM_ (\(pos, v) -> writeMemory' pos v) tweaks
             runInterpreterAtPositionNoSurfacing True 0
             resultCode <- readMemory' 0
-            setExitCode' resultCode
+            return resultCode
     in case output of
         (_, Left err) -> do
             traceM (printf "Error running with tweaks %s: %s" (show tweaks) err)
             findIntCodeTweakWithResult input desired rest
-        (_, Right (Nothing)) -> do
-            traceM (printf "Never reached result assignment on tweaks %s" (show tweaks))
-            findIntCodeTweakWithResult input desired rest
-        ((i, o, state), Right (Just resultCode)) | resultCode == desired -> Just (tweaks, state)
-        (_, Right (Just _)) -> do
+        ((i, o, state), Right resultCode) | resultCode == desired -> Just (tweaks, state)
+        (_, Right _) -> do
             traceM (printf "Incorrect result on tweaks %s" (show tweaks))
             findIntCodeTweakWithResult input desired rest
 
