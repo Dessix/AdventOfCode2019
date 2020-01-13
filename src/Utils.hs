@@ -39,7 +39,6 @@ import Data.GraphViz.Commands
 
 import Control.Concurrent (forkIO)
 import qualified GHC.Conc.Sync (ThreadId)
-import FreerUtils
 
 getLinesUntilBlank :: IO [String]
 getLinesUntilBlank = do
