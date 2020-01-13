@@ -131,6 +131,15 @@ sequenceMultipleInterpreters :: [Int] -> [Int] -> Int -> [(MemIState, Either Str
 sequenceMultipleInterpreters program initialInputs numInterpreters =
     let
         initialState = buildInterpreterInitialState program initialInputs
+        -- Run all machines, feeding outputs through to the next until each one reaches a "Right" result
+        -- For each machine, (state, processed outputs, Either NextPosition or Result)
+        -- Current always gets appended to the list; convert to dequeue when algorithm is stable
+        loop :: [(MemIState, [Int], Either Int (Maybe Int))] -> [(MemIState, [Int], Either Int (Maybe Int))] -- TODO: handle error string cases
+        loop [] = [] -- Otherwise we'd loop forever
+        -- outputs already processed as result is present, pass nothing on, resume next machine
+        loop ((cur@(_, _, Right _)) : rest) = undefined -- If all existing machines have results, bail out
+        -- continue machine, process outputs; if result provided, machine should be registered as "right"
+        loop ((cur@(state, processedOutputs, Left nextPos)) : rest) = undefined
 
     in
     undefined -- resumeInterpreterInMemory 
