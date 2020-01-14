@@ -26,11 +26,15 @@ import Control.Arrow ((>>>))
 
 import Data.List
 import qualified Data.Text as T
+import Data.Vector.Mutable (MVector, IOVector)
+import qualified Data.Vector.Mutable as MVector
 import Data.Vector (Vector)
 import qualified Data.Vector as Vector
 
 import Text.Printf
 import Debug.Trace
+
+import Utils
 
 data Interpreter m i where
   ReadMemory :: Int -> Interpreter m Int
@@ -59,12 +63,18 @@ readMemorySequence' :: (Member Interpreter r) => Int -> Int -> Sem r [Int]
 readMemorySequence' start count = readMemoryEach' [start..start + count - 1]
 
 type MemIState = ([Int], [Int], Vector Int)
+type MemIOState = ([Int], [Int], IOVector Int)
 
 -- interpretInstruction :: Interpreter m i 
 -- interpretInstruction instruction state =
 
 buildInterpreterInitialState :: [Int] -> [Int] -> MemIState
 buildInterpreterInitialState program inputs = (inputs, [], Vector.fromList program)
+
+buildInterpreterInitialStateIO :: [Int] -> [Int] -> IO MemIOState
+buildInterpreterInitialStateIO program inputs = do
+  programVector <- listToMVector program
+  return (inputs, [], programVector)
 
 resumeInterpreterInMemoryInternal :: MemIState -> Sem (Interpreter ': r) a -> Sem r (MemIState, Either String a)
 resumeInterpreterInMemoryInternal initialState =
@@ -106,6 +116,32 @@ resumeInterpreterInMemory :: MemIState -> Sem '[Interpreter] a -> (MemIState, Ei
 resumeInterpreterInMemory state =
   run . resumeInterpreterInMemoryInternal state
 
--- runInterpreterIO :: LastMember IO i => Eff (Interpreter ': i) ~> Eff i
--- runInterpreterIO = interpretM $ \instr -> case instr of
---     ReadMemory a -> 
+
+resumeInterpreterIO :: (Member (Embed IO) r) => MemIOState -> Sem (Interpreter ': r) a -> Sem r (MemIOState, Either String a)
+resumeInterpreterIO initialState =
+  runState @MemIOState initialState
+  . runError
+  . reinterpret2 \case
+    ReadMemory addr -> do
+      (_, _, mem) <- get @MemIOState
+      if addr < 0 || MVector.length mem <= addr then
+        throw @String $ printf "Out of bounds memory access at address %d" addr
+      else
+        embed $ MVector.read mem addr
+    WriteMemory addr value -> do
+      (i, o, mem) <- get @MemIOState
+      if addr < 0 || addr > (MVector.length mem) then
+        throw @String $ printf "Out of bounds memory write at address %d" addr
+      else do
+        embed $ MVector.write mem addr value
+        put @MemIOState (i, o, mem)
+    ConsoleInput -> do
+      (i, o, mem) <- get @MemIOState
+      case i of
+        x : xs -> do
+          put @MemIOState (xs, o, mem)
+          pure x
+        [] -> throw "Insufficient inputs available for requested run"
+    ConsoleOutput item -> do
+      (i, o, mem) <- get @MemIOState
+      put (i, item : o, mem)

@@ -20,12 +20,18 @@ import Data.List
 import qualified Data.List as List
 import qualified Data.Maybe as Maybe
 import qualified Data.Text as T
+import Data.Vector.Mutable (MVector, IOVector)
+import qualified Data.Vector.Mutable as MVector
 import Data.Vector (Vector)
 import qualified Data.Vector as Vector
 import Data.Function ((&))
 
+import qualified Polysemy (runM, raise)
+
 import Text.Printf
 import Debug.Trace
+
+import Control.Monad.ST
 
 import Utils
 
@@ -33,7 +39,7 @@ import Interpreter
 import IntCodeInterpreter
 
 
-_testInput =
+_testProgram =
     [
         1,0,0,3,1,1,2,3,1,3,4,3,1,5,0,3,2,10,1,19,1,6,19,23,2,23,6,27,1,5,27,31,
         1,31,9,35,2,10,35,39,1,5,39,43,2,43,10,47,1,47,6,51,2,51,6,55,2,55,13,59,
@@ -41,7 +47,16 @@ _testInput =
         87,13,91,2,91,10,95,1,6,95,99,1,99,13,103,1,13,103,107,2,107,10,111,1,9,
         111,115,1,115,10,119,1,5,119,123,1,6,123,127,1,10,127,131,1,2,131,135,1,135,10,0,99,2,14,0,0]
 
-testInterpreter = runInterpreterInMemory _testInput [] $ do { writeMemory' 1 12; writeMemory' 2 2; runInterpreterAtPositionYielding True 0; return 0 }
+testInterpreter = runInterpreterInMemory _testProgram [] $ do { writeMemory' 1 12; writeMemory' 2 2; runInterpreterAtPositionYielding True 0; return 0 }
+testInterpreterIO = do
+    initialState <- buildInterpreterInitialStateIO _testProgram []
+    ((inputs, outputs, mem), res) <- Polysemy.runM $ resumeInterpreterIO initialState $ do
+        writeMemory' 1 12
+        writeMemory' 2 2
+        runInterpreterAtPositionYielding True 0
+        return 0
+    memClone <- mVectorToList mem
+    return ((inputs, outputs, memClone), res)
 
 runDiagnosticsEngine consoleInputs = do
     program <- getIntsFromConsoleUntilBlank;
@@ -128,20 +143,26 @@ solveDay2Part2 requestedNumber =
 
 
 sequenceMultipleInterpreters :: [Int] -> [Int] -> Int -> [(MemIState, Either String (Maybe Int))]
+sequenceMultipleInterpreters program initialInputs 0 = []
 sequenceMultipleInterpreters program initialInputs numInterpreters =
     let
         initialState = buildInterpreterInitialState program initialInputs
         -- Run all machines, feeding outputs through to the next until each one reaches a "Right" result
         -- For each machine, (state, processed outputs, Either NextPosition or Result)
         -- Current always gets appended to the list; convert to dequeue when algorithm is stable
-        loop :: [(MemIState, [Int], Either Int (Maybe Int))] -> [(MemIState, [Int], Either Int (Maybe Int))] -- TODO: handle error string cases
-        loop [] = [] -- Otherwise we'd loop forever
+        loop :: [Int] -> 
+            [(MemIState, [Int], Either Int (Maybe Int))]
+            -> [(MemIState, [Int], Either Int (Maybe Int))]
+        loop idx [] = undefined
         -- outputs already processed as result is present, pass nothing on, resume next machine
-        loop ((cur@(_, _, Right _)) : rest) = undefined -- If all existing machines have results, bail out
+        loop _ ((cur@(_, _, Right _)) : rest) = undefined -- If all existing machines have results, bail out
         -- continue machine, process outputs; if result provided, machine should be registered as "right"
-        loop ((cur@(state, processedOutputs, Left nextPos)) : rest) = undefined
+        loop _ ((cur@(state, processedOutputs, Left nextPos)) : rest) = undefined
 
+        initialMachines = List.replicate numInterpreters (initialState)
+        idxs = List.cycle [0..(numInterpreters - 1)]
     in
+    -- loop idxs
     undefined -- resumeInterpreterInMemory 
 
 

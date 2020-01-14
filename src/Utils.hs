@@ -20,6 +20,10 @@ import qualified Data.Text as T
 import qualified Data.Text.Lazy as TL
 import qualified Data.Text.Read as T.Read
 import Data.Maybe
+import Data.Vector.Mutable (MVector)
+import qualified Data.Vector.Mutable as MVector
+import Data.Vector (Vector)
+import qualified Data.Vector as Vector
 
 import qualified Algebra.Graph.Class as G
 import qualified Algebra.Graph.HigherKinded.Class as GHK
@@ -37,6 +41,7 @@ import Data.GraphViz.Types (parseDotGraphLiberally)
 import Data.GraphViz.Types.Canonical (DotGraph)
 import Data.GraphViz.Commands
 
+import Control.Monad.Primitive (PrimMonad, PrimState)
 import Control.Concurrent (forkIO)
 import qualified GHC.Conc.Sync (ThreadId)
 
@@ -183,3 +188,19 @@ pathBetweenNodes g start dest =
     (\_ _ -> 1)
     (\vert -> vert == dest)
     start
+
+mVectorToList :: PrimMonad m => MVector (PrimState m) a -> m [a]
+mVectorToList mv =
+    mapM (MVector.read mv) [0..((MVector.length mv) - 1)]
+
+mVectorToVector :: PrimMonad m => MVector (PrimState m) a -> m (Vector a)
+mVectorToVector mv = do
+    items <- mVectorToList mv
+    return $ Vector.fromList items
+
+listToMVector :: PrimMonad m => [a] -> m (MVector (PrimState m) a)
+listToMVector items = do
+    vec <- MVector.new (length items)
+    mapM_ (uncurry $ MVector.write vec) $ zip [0..] items
+    return vec
+
