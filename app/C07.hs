@@ -26,12 +26,16 @@ import Data.Vector (Vector)
 import qualified Data.Vector as Vector
 import Data.Function ((&))
 
-import qualified Polysemy (runM, raise)
+import Polysemy (runM, raise)
+import Polysemy (Sem (..), Member (..))
+import Polysemy.Embed (embed, Embed (..))
 
 import Text.Printf
 import Debug.Trace
 
 import Control.Monad.ST
+import Control.Concurrent
+import Control.Concurrent.Chan
 
 import Utils
 
@@ -166,3 +170,60 @@ sequenceMultipleInterpreters program initialInputs numInterpreters =
     undefined -- resumeInterpreterInMemory 
 
 
+
+-- Proof that IO results can be consumed iteratively
+testThreadBlocking = do
+    a <- newChan
+    b <- newChan
+    forkIO $ do
+        writeChan a "1"
+        threadDelay 20000000
+        writeChan a "2"
+    forkIO $ do
+        contents <- getChanContents a
+        writeList2Chan b contents
+    
+    items <- getChanContents b
+    mapM_ (putStrLn . show) items
+
+testThreadBlocking2 = do
+    a <- newChan
+    b <- newChan
+    c <- newChan
+    writeChan a 1
+    forkIO $ do
+        items <- getChanContents a
+        let stream = takeWhiler (\x -> x < 1000) $ scanl (\memo item -> item) 1 items 
+            in do
+            writeList2Chan b stream
+            writeChan c $ last $ stream
+    forkIO $ do
+        contents <- getChanContents b
+        writeList2Chan a $ map (* 2) contents
+    
+    result <- readChan c
+    putStrLn $ show result
+
+
+runInterpreterThreadOnChannels :: (Member (Embed IO) r) => [Int] -> (Chan Int, Chan Int) -> Sem (Interpreter ': r) a -> Sem r (Maybe Int, Either String a)
+runInterpreterThreadOnChannels program (inchan, outchan) instructions = do
+    program <- embed $ listToMVector program
+    inputs <- embed $ getChanContents inchan
+    ((_, mem), (outputs, res)) <- runInterpreterIOStreaming (inputs, program) instructions
+
+    embed $ writeList2Chan outchan outputs
+    return $ (if outputs /= [] then Just (last outputs) else Nothing, res)
+
+
+testInterpreterSimultaneity = do
+    inchan <- newChan
+    outchan <- newChan
+    forkIO $ runM $ do
+        runInterpreterThreadOnChannels [0,0,0,0] (inchan, outchan) $ do
+            v <- input'
+            output' (v * 2)
+        return ()
+    consoleRead <- getLine
+    writeChan inchan (read @Int consoleRead)
+    result <- readChan outchan
+    putStrLn (show result)

@@ -204,3 +204,9 @@ listToMVector items = do
     mapM_ (uncurry $ MVector.write vec) $ zip [0..] items
     return vec
 
+takeWhiler :: (a -> Bool) -> [a] -> [a]
+takeWhiler _ [] = []
+takeWhiler predicate (x:xs) =
+    if predicate x then
+        x : (takeWhiler predicate xs)
+    else [x]

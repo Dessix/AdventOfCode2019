@@ -145,3 +145,34 @@ resumeInterpreterIO initialState =
     ConsoleOutput item -> do
       (i, o, mem) <- get @MemIOState
       put (i, item : o, mem)
+
+type InterpreterStreamingState = ([Int], IOVector Int)
+
+runInterpreterIOStreaming :: (Member (Embed IO) r) => InterpreterStreamingState -> Sem (Interpreter ': r) a -> Sem r (InterpreterStreamingState, ([Int], Either String a))
+runInterpreterIOStreaming initialState =
+  let mlen = MVector.length (snd initialState) in
+  runState @InterpreterStreamingState initialState
+  . runOutputList @Int
+  . runError
+  . reinterpret3 \case
+    ReadMemory addr -> do
+      (_, mem) <- get
+      if addr < 0 || addr > mlen then
+        throw @String $ printf "Out of bounds memory access at address %d" addr
+      else
+        embed $ MVector.read mem addr
+    WriteMemory addr value -> do
+      (i, mem) <- get
+      if addr < 0 || addr > mlen then
+        throw @String $ printf "Out of bounds memory write at address %d" addr
+      else do
+        embed $ MVector.write mem addr value
+        put (i, mem)
+    ConsoleInput -> do
+      (i, mem) <- get
+      case i of
+        x : xs -> do
+          put (xs, mem)
+          pure x
+        [] -> throw "Insufficient inputs available for requested run"
+    ConsoleOutput item -> output item
