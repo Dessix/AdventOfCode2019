@@ -25,6 +25,8 @@ dependencies:
 - polysemy-plugin
 - polysemy-zoo
 - primitive
+- monad-parallel
+- unagi-chan
 
 default-extensions:
   DataKinds FlexibleContexts LambdaCase

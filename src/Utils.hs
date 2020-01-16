@@ -210,3 +210,9 @@ takeWhiler predicate (x:xs) =
     if predicate x then
         x : (takeWhiler predicate xs)
     else [x]
+
+-- sliding window of pairs across a sequence; behaves oddly if the sequence ends- intended for use on infinite/cycled sequences
+slidingPairs :: [a] -> [(a, a)]
+slidingPairs (x : y : rest) = ((x, y) : slidingPairs (y : rest))
+slidingPairs (x : []) = []
+slidingPairs [] = []

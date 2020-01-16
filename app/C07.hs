@@ -11,7 +11,8 @@
 {-# LANGUAGE PartialTypeSignatures #-}
 module C07 where
 
-import Control.Monad (when, unless)
+import Control.Monad (when, unless, replicateM, forM_)
+import qualified Control.Monad.Parallel as Par
 
 import qualified Control.Monad.Fail
 
@@ -22,6 +23,10 @@ import qualified Data.Maybe as Maybe
 import qualified Data.Text as T
 import Data.Vector.Mutable (MVector, IOVector)
 import qualified Data.Vector.Mutable as MVector
+import Data.Set (Set)
+import qualified Data.Set as Set
+import Data.Map (Map)
+import qualified Data.Map as Map
 import Data.Vector (Vector)
 import qualified Data.Vector as Vector
 import Data.Function ((&))
@@ -33,9 +38,10 @@ import Polysemy.Embed (embed, Embed (..))
 import Text.Printf
 import Debug.Trace
 
+import Control.Exception (assert)
 import Control.Monad.ST
-import Control.Concurrent
-import Control.Concurrent.Chan
+import Control.Concurrent hiding (Chan, newChan, readChan, writeChan, getChanContents, writeList2Chan, dupChan)
+import Control.Concurrent.Chan.Unagi
 
 import Utils
 
@@ -172,58 +178,168 @@ sequenceMultipleInterpreters program initialInputs numInterpreters =
 
 
 -- Proof that IO results can be consumed iteratively
-testThreadBlocking = do
-    a <- newChan
-    b <- newChan
-    forkIO $ do
-        writeChan a "1"
-        threadDelay 20000000
-        writeChan a "2"
-    forkIO $ do
-        contents <- getChanContents a
-        writeList2Chan b contents
+-- testThreadBlocking = do
+--     a <- newChan
+--     b <- newChan
+--     forkIO $ do
+--         writeChan a "1"
+--         threadDelay 20000000
+--         writeChan a "2"
+--     forkIO $ do
+--         contents <- getChanContents a
+--         writeList2Chan b contents
     
-    items <- getChanContents b
-    mapM_ (putStrLn . show) items
+--     items <- getChanContents b
+--     mapM_ (putStrLn . show) items
 
-testThreadBlocking2 = do
-    a <- newChan
-    b <- newChan
-    c <- newChan
-    writeChan a 1
-    forkIO $ do
-        items <- getChanContents a
-        let stream = takeWhiler (\x -> x < 1000) $ scanl (\memo item -> item) 1 items 
-            in do
-            writeList2Chan b stream
-            writeChan c $ last $ stream
-    forkIO $ do
-        contents <- getChanContents b
-        writeList2Chan a $ map (* 2) contents
+-- testThreadBlocking2 = do
+--     a <- newChan
+--     b <- newChan
+--     c <- newChan
+--     writeChan a 1
+--     forkIO $ do
+--         items <- getChanContents a
+--         let stream = takeWhiler (\x -> x < 1000) $ scanl (\memo item -> item) 1 items 
+--             in do
+--             writeList2Chan b stream
+--             writeChan c $ last $ stream
+--     forkIO $ do
+--         contents <- getChanContents b
+--         writeList2Chan a $ map (* 2) contents
     
-    result <- readChan c
-    putStrLn $ show result
+--     result <- readChan c
+--     putStrLn $ show result
 
 
-runInterpreterThreadOnChannels :: (Member (Embed IO) r) => [Int] -> (Chan Int, Chan Int) -> Sem (Interpreter ': r) a -> Sem r (Maybe Int, Either String a)
-runInterpreterThreadOnChannels program (inchan, outchan) instructions = do
+runInterpreterThreadOnChannels :: (Member (Embed IO) r) => [Int] -> [Int] -> (OutChan Int, InChan Int) -> Sem (Interpreter ': r) a -> Sem r (Maybe Int, Either String a)
+runInterpreterThreadOnChannels program baseInputs (inchan, outchan) instructions = do
     program <- embed $ listToMVector program
     inputs <- embed $ getChanContents inchan
-    ((_, mem), (outputs, res)) <- runInterpreterIOStreaming (inputs, program) instructions
+    ((_, mem), (outputs, res)) <- runInterpreterIOStreaming ((baseInputs ++ inputs), program) instructions
 
     embed $ writeList2Chan outchan outputs
     return $ (if outputs /= [] then Just (last outputs) else Nothing, res)
 
 
-testInterpreterSimultaneity = do
-    inchan <- newChan
-    outchan <- newChan
-    forkIO $ runM $ do
-        runInterpreterThreadOnChannels [0,0,0,0] (inchan, outchan) $ do
-            v <- input'
-            output' (v * 2)
-        return ()
-    consoleRead <- getLine
-    writeChan inchan (read @Int consoleRead)
-    result <- readChan outchan
-    putStrLn (show result)
+-- testInterpreterSimultaneity = do
+--     inchan <- newChan
+--     outchan <- newChan
+--     forkIO $ runM $ do
+--         runInterpreterThreadOnChannels [0,0,0,0] [] (inchan, outchan) $ do
+--             v <- input'
+--             output' (v * 2)
+--         return ()
+--     consoleRead <- getLine
+--     writeChan inchan (read @Int consoleRead)
+--     result <- readChan outchan
+--     putStrLn (show result)
+
+nameObjects nameSequence objects =
+    Map.fromList (zip (Set.toList (Set.fromList objects)) nameSequence)
+
+sequenceMultipleInterpretersIONoLoop :: [Int] -> [[Int]] -> Int -> IO (Either String Int)
+sequenceMultipleInterpretersIONoLoop program blockInitialInputs initializerInput =
+    let
+        section :: (Member (Embed IO) r) => (OutChan Int, InChan Int) -> [Int] -> Sem (Interpreter ': r) () -> Sem r ()
+        section (inchan, outchan) initialInputs instructions = do
+            runInterpreterThreadOnChannels program initialInputs (inchan, outchan) instructions
+            return ()
+        blockCount = List.length blockInitialInputs
+    in do
+    traceM $ printf "Blockcount is %d" blockCount
+    channels <- replicateM (blockCount + 1) newChan
+    let
+        blockChanSets =
+            map (\((_, io), (oi, _)) -> (io, oi)) $ take blockCount $ slidingPairs (channels)
+        makeSection (id, (iocs, initialInputs)) =
+            section iocs initialInputs $ do
+                traceM $ printf "I#%d has initial inputs %s" id (show initialInputs)
+                let
+                    loop pos = do
+                        res <- runInterpreterAtPositionYieldingWithDebugName (Just ("I#"++(show id))) pos
+                        --traceM $ printf "I#%d yielding with nextPos of %s" id (show res)
+                        --embed $ yield
+                        case res of
+                            Just next -> loop next
+                            Nothing -> do
+                                traceM $ printf "Exiting interpreter %d" id
+                                return ()
+                    in
+                    loop 0
+        sections :: [Sem '[Embed IO] ()]
+        sections = map makeSection
+            (zip
+                ([0..]::[Int])
+                (zip
+                    blockChanSets
+                    blockInitialInputs
+               ))
+        globalInputChannel = head channels
+        in do
+        traceM "Writing initial input"
+        writeChan (fst globalInputChannel) initializerInput
+        traceM $ printf "Starting threads for %d sections" (List.length sections)
+        Par.mapM (Polysemy.runM) sections
+        traceM "Gathering results..."
+        results <- getChanContents (snd (last channels))
+        forM_ results (\r -> putStrLn (show r))
+        return $ Right $ last results
+
+testSequenceMultipleInterpretersNoLoop =
+    sequenceMultipleInterpretersIONoLoop
+        [3,15,3,16,1002,16,10,16,1,16,15,15,4,15,99,0,0]
+        --(map (\x->[x]) [4,3,2,1,0])
+        (map (\x->[x]) [4])
+        0
+
+sequenceMultipleInterpretersIO :: [Int] -> [[Int]] -> Int -> IO (Either String Int)
+sequenceMultipleInterpretersIO program blockInitialInputs initializerInput =
+    let
+        section :: (Member (Embed IO) r) => (OutChan Int, InChan Int) -> [Int] -> Sem (Interpreter ': r) () -> Sem r ()
+        section (inchan, outchan) initialInputs instructions = do
+            runInterpreterThreadOnChannels program initialInputs (inchan, outchan) instructions
+            return ()
+        blockCount = List.length blockInitialInputs
+    in do
+    channels <- replicateM blockCount newChan
+    -- First of `channels` is global input and also global output; arrange pairings to fit
+    -- a,b,c; cycle, pairize => [ab, bc, ca] leads to [... | a 1 b 2 c 3 | a 1 b 2 ...]
+    let
+        blockChanSets =
+            map (\((_, io), (oi, _)) -> (io, oi)) $ take blockCount $ slidingPairs (cycle channels)
+        sections :: [Sem '[Embed IO] ()]
+        sections = map (\(id, (iocs, initialInputs)) ->
+            section iocs initialInputs $ do
+                traceM $ printf "I#%d has initial inputs %s" id (show initialInputs)
+                let
+                    loop pos = do
+                        traceM $ printf "I#%d:" id
+                        res <- runInterpreterAtPositionYielding True pos
+                        traceM $ printf "I#%d yielding with nextPos of %s" id (show res)
+                        embed $ yield
+                        case res of
+                            Just next -> loop next
+                            Nothing -> do
+                                traceM $ printf "Exiting interpreter %d" id
+                                return ()
+                    in
+                    loop 0
+            ) (zip ([0..]::[Int]) (zip blockChanSets blockInitialInputs))
+        globalInputChannel = head channels
+        in do
+        traceM $ "Interpreter connections (i,o): " ++ (show (take blockCount $ slidingPairs (cycle [0..blockCount - 1])))
+        traceM "Writing initial input"
+        writeChan (fst globalInputChannel) initializerInput
+        outputChannel <- dupChan (fst globalInputChannel)
+        traceM "Starting threads"
+        mapM_ (forkIO . Polysemy.runM) sections
+        traceM "Gathering results..."
+        results <- getChanContents outputChannel
+        forM_ results (\r -> putStrLn (show r))
+        return $ Right $ last results
+
+
+testSequenceMultipleInterpreters =
+    sequenceMultipleInterpretersIO
+        [3,26,1001,26,-4,26,3,27,1002,27,2,27,1,27,26,27,4,27,1001,28,-1,28,1005,28,6,99,0,0,5] [[9],[8],[7],[6],[5]]
+        0

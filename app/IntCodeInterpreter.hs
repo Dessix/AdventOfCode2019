@@ -127,8 +127,8 @@ parseOpInfo opCodeWithModes opPosition =
     in
         (opType, arity, (zip (Vector.toList overriddenModes) parameterPositions))
 
-runInterpreterAtPositionYielding :: Member Interpreter r => Bool -> Int -> Sem r (Maybe Int)
-runInterpreterAtPositionYielding debug pc =
+runInterpreterAtPositionYieldingWithDebugName :: Member Interpreter r => Maybe String -> Int -> Sem r (Maybe Int)
+runInterpreterAtPositionYieldingWithDebugName debugName pc =
     let
         getParam :: Member Interpreter r => ParameterMode -> Int -> Sem r Int
         getParam PositionMode position = readMemory' position >>= readMemory'
@@ -139,11 +139,18 @@ runInterpreterAtPositionYielding debug pc =
     opCode <- readMemory' pc
     (op, paramCount) <- buildOp getParam $ parseOpInfo opCode pc
 
-    when debug $ traceM (printf "%5d | %s" pc (show op))
+    case debugName of
+        Just "" -> traceM (printf "%5d | %s" pc (show op))
+        Just name -> traceM (printf "%s | %5d | %s" name pc (show op))
+        _ -> return ()
     maybeNextPosition <- runOp pc (fromIntegral paramCount) op
     case maybeNextPosition of
         Nothing -> return $ Nothing
         Just nextPosition -> return $ Just nextPosition
+
+runInterpreterAtPositionYielding :: Member Interpreter r => Bool -> Int -> Sem r (Maybe Int)
+runInterpreterAtPositionYielding debug pc =
+    runInterpreterAtPositionYieldingWithDebugName (if debug then (Just "") else Nothing) pc
 
 runInterpreterAtPosition :: Member Interpreter r => Bool -> Int -> Sem r ()
 runInterpreterAtPosition debug pc = do
