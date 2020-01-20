@@ -216,3 +216,7 @@ slidingPairs :: [a] -> [(a, a)]
 slidingPairs (x : y : rest) = ((x, y) : slidingPairs (y : rest))
 slidingPairs (x : []) = []
 slidingPairs [] = []
+
+headApply :: (a -> a) -> [a] -> [a]
+headApply f [] = []
+headApply f (x : xs) = (f x) : xs

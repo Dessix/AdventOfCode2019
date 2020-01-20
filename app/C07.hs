@@ -158,31 +158,33 @@ solveDay2Part2 requestedNumber =
 
 
 --- Run a single machine one step; exceptions (such as from insufficient inputs) undo the execution
-runSingleMachine :: (MemIState, Either Int ()) -> (MemIState, Either Int ())
-runSingleMachine cur@(_, Right _) = cur
-runSingleMachine cur@(state, Left nextPos) =
-    case resumeInterpreterInMemory state $ do runInterpreterAtPositionYielding True nextPos of
+runSingleMachine :: Maybe String -> (MemIState, Either Int ()) -> (MemIState, Either Int ())
+runSingleMachine debugName cur@(_, Right _) = cur
+runSingleMachine debugName cur@(state, Left nextPos) =
+    case resumeInterpreterInMemory state $ do runInterpreterAtPositionYieldingWithDebugName debugName nextPos of
         (state', Right (Just nextPos')) -> (state', Left nextPos')
         (state', Right Nothing) -> (state', Right ())
-        (_, Left _) -> cur
+        (_, Left _) -> case cur of -- An error occurred; handle it
+            (((_ : _), _, _), _) -> (state, Right ()) -- Had input available; was not a lack-of-input failure; bail
+            _ -> cur -- No input available; may have been lack-of-input, continue next cycle
 
 -- Runs a machine, producing a new state and outputs to feed to the next
-runMachineStep :: (MemIState, Either Int ()) -> ((MemIState, Either Int ()), [Int])
-runMachineStep cur@(_, Right _) = (cur, [])
-runMachineStep ((i, o, state), Left nextPos) =
-    let ((i', o', state'), result) = runSingleMachine ((i, [], state), Left nextPos)
+runMachineStep :: Maybe String -> (MemIState, Either Int ()) -> ((MemIState, Either Int ()), [Int])
+runMachineStep debugName cur@(_, Right _) = (cur, [])
+runMachineStep debugName ((i, o, state), Left nextPos) =
+    let ((i', o', state'), result) = runSingleMachine debugName ((i, [], state), Left nextPos)
     in (((i', o ++ o', state'), result), o')
 
-foldMachineSet :: 
-    [(MemIState, Either Int ())]
-    -> [(MemIState, [Int], Either Int ())]
-foldMachineSet [] = []
-foldMachineSet (x : []) = let ((s, r), o) = runMachineStep x in [(s, o, r)]
-foldMachineSet (x : ((nextMInputs, nextMOutputs, nextMState), nextMResult) : xs) =
-    let ((s, r), o) = runMachineStep x in
-    let rest = foldMachineSet (((nextMInputs ++ o, nextMOutputs, nextMState), nextMResult) : xs) in -- hack - input position math may need tweak / reversal
-    (s, o, r) : rest
 
+foldMachineSet ::
+    [(Int, (MemIState, Either Int ()))]
+    -> [(Int, (MemIState, [Int], Either Int ()))]
+foldMachineSet [] = []
+foldMachineSet ((name, x) : []) = let ((s, r), o) = runMachineStep (Just $ show name) x in [(name, (s, o, r))]
+foldMachineSet ((name, x) : (nextName, ((nextMInputs, nextMOutputs, nextMState), nextMResult)) : xs) =
+    let ((s, r), o) = runMachineStep (Just $ show name) x in
+    let rest = foldMachineSet ((nextName, ((nextMInputs ++ o, nextMOutputs, nextMState), nextMResult)) : xs) in
+    (name, (s, o, r)) : rest
 
 -- Run machines in provided state-stack, returning their new states
 -- newly-emitted outputs are forwarded into the states of the next machine, or returned at the end
@@ -191,8 +193,7 @@ foldMachineSet (x : ((nextMInputs, nextMOutputs, nextMState), nextMResult) : xs)
 runMachineSet ::
     [(MemIState, Either Int ())]
     -> [(MemIState, [Int], Either Int ())]
-runMachineSet machines = foldMachineSet machines
-
+runMachineSet machines = map snd $ foldMachineSet $ zip [0..] machines
 
 buildSequencerInitialStates' :: [Int] -> [[Int]] -> [MemIState]
 buildSequencerInitialStates' program [] = []
@@ -212,39 +213,43 @@ buildSequencerMachines program initialInputs starterInputs =
     map (\x->(x, Left 0)) $ buildSequencerInitialStates program initialInputs starterInputs
 
 
-sequenceMachinesDirectionallyUntil :: ([(MemIState, [Int], Either Int ())] -> Bool) -> [(MemIState, Either Int ())] -> [(MemIState, Either Int ())]
-sequenceMachinesDirectionallyUntil predicate machines =
+runMachineSequencerUntil ::
+    ([(MemIState, [Int], Either Int ())] -> [(MemIState, [Int], Either Int ())])
+    -> ([(MemIState, [Int], Either Int ())] -> Bool)
+    -> [(MemIState, Either Int ())]
+    -> [(MemIState, Either Int ())]
+runMachineSequencerUntil sequencer predicate [] = []
+runMachineSequencerUntil sequencer predicate machines =
     let
         res = runMachineSet machines
-        matches = predicate res
-        res' = map (\(s, o, r) -> (s, r)) res
-    in
-    if matches then res' else sequenceMachinesDirectionallyUntil predicate res'
+        res' = map (\(s, o, r) -> (s, r)) $ sequencer res
+    in if predicate res then res' else runMachineSequencerUntil sequencer predicate res'
 
+sequenceMachinesDirectionallyUntil :: ([(MemIState, [Int], Either Int ())] -> Bool) -> [(MemIState, Either Int ())] -> [(MemIState, Either Int ())]
+sequenceMachinesDirectionallyUntil predicate machines = runMachineSequencerUntil id predicate machines
 
-sequenceMultipleInterpreters :: [Int] -> [[Int]] -> [Int] -> [(MemIState, Either String ())]
-sequenceMultipleInterpreters program [] _ = []
-sequenceMultipleInterpreters program initialInputs starterInputs =
+sequenceMachinesCyclicallyUntil :: ([(MemIState, [Int], Either Int ())] -> Bool) -> [(MemIState, Either Int ())] -> [(MemIState, Either Int ())]
+sequenceMachinesCyclicallyUntil predicate machines =
     let
-        initialMachines = buildSequencerInitialStates program initialInputs starterInputs
+        selectNewOutputs (_, o', _) = o'
+        addNewInputs ((i, o, s), o', r) i' = ((i ++ i', o, s), o', r)
+        sequencer :: [(MemIState, [Int], Either Int ())] -> [(MemIState, [Int], Either Int ())]
+        sequencer items = headApply (\x -> addNewInputs x (selectNewOutputs (last items))) items
+    in runMachineSequencerUntil sequencer predicate machines
 
-        -- -- outputs already processed as result is present, pass nothing on, resume next machine
-        -- runMachineSet ((cur@(_, _, Right _)) : rest) = undefined -- If all existing machines have results, bail out
-        -- -- continue machine, process outputs; if result provided, machine should be registered as "right"
-        -- runMachineSet ((cur@(state, processedOutputs, Left nextPos)) : rest) = undefined
+-- Usages of the above sequencers
 
-    in
-    undefined -- resumeInterpreterInMemory 
+sequenceMachinesDirectionallyUntilFirstOutput machines =
+    sequenceMachinesDirectionallyUntil (\machines -> case (last machines) of (_, (_ : _), _) -> True ; _ -> False) machines
 
+sequenceMachinesCyclicallyUntilFirstOutput machines =
+    sequenceMachinesCyclicallyUntil (\machines -> case (last machines) of (_, (_ : _), _) -> True ; _ -> False) machines
 
+sequenceMachinesDirectionallyUntilLastExits machines =
+    sequenceMachinesDirectionallyUntil (\machines -> case (last machines) of (_, _, Right _) -> True ; _ -> False) machines
 
-
-
-
-
-
-
-
+sequenceMachinesCyclicallyUntilLastExits machines =
+    sequenceMachinesCyclicallyUntil (\machines -> case (last machines) of (_, _, Right _) -> True ; _ -> False) machines
 
 -- Proof that IO results can be consumed iteratively
 -- testThreadBlocking = do
