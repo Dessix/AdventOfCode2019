@@ -152,28 +152,97 @@ solveDay2Part2 requestedNumber =
     return (findIntCodeTweakWithResult program requestedNumber tweaksets)
 
 
-sequenceMultipleInterpreters :: [Int] -> [Int] -> Int -> [(MemIState, Either String (Maybe Int))]
-sequenceMultipleInterpreters program initialInputs 0 = []
-sequenceMultipleInterpreters program initialInputs numInterpreters =
-    let
-        initialState = buildInterpreterInitialState program initialInputs
-        -- Run all machines, feeding outputs through to the next until each one reaches a "Right" result
-        -- For each machine, (state, processed outputs, Either NextPosition or Result)
-        -- Current always gets appended to the list; convert to dequeue when algorithm is stable
-        loop :: [Int] -> 
-            [(MemIState, [Int], Either Int (Maybe Int))]
-            -> [(MemIState, [Int], Either Int (Maybe Int))]
-        loop idx [] = undefined
-        -- outputs already processed as result is present, pass nothing on, resume next machine
-        loop _ ((cur@(_, _, Right _)) : rest) = undefined -- If all existing machines have results, bail out
-        -- continue machine, process outputs; if result provided, machine should be registered as "right"
-        loop _ ((cur@(state, processedOutputs, Left nextPos)) : rest) = undefined
 
-        initialMachines = List.replicate numInterpreters (initialState)
-        idxs = List.cycle [0..(numInterpreters - 1)]
+
+
+
+
+--- Run a single machine one step; exceptions (such as from insufficient inputs) undo the execution
+runSingleMachine :: (MemIState, Either Int ()) -> (MemIState, Either Int ())
+runSingleMachine cur@(_, Right _) = cur
+runSingleMachine cur@(state, Left nextPos) =
+    case resumeInterpreterInMemory state $ do runInterpreterAtPositionYielding True nextPos of
+        (state', Right (Just nextPos')) -> (state', Left nextPos')
+        (state', Right Nothing) -> (state', Right ())
+        (_, Left _) -> cur
+
+-- Runs a machine, producing a new state and outputs to feed to the next
+runMachineStep :: (MemIState, Either Int ()) -> ((MemIState, Either Int ()), [Int])
+runMachineStep cur@(_, Right _) = (cur, [])
+runMachineStep ((i, o, state), Left nextPos) =
+    let ((i', o', state'), result) = runSingleMachine ((i, [], state), Left nextPos)
+    in (((i', o ++ o', state'), result), o')
+
+foldMachineSet :: 
+    [(MemIState, Either Int ())]
+    -> [(MemIState, [Int], Either Int ())]
+foldMachineSet [] = []
+foldMachineSet (x : []) = let ((s, r), o) = runMachineStep x in [(s, o, r)]
+foldMachineSet (x : ((nextMInputs, nextMOutputs, nextMState), nextMResult) : xs) =
+    let ((s, r), o) = runMachineStep x in
+    let rest = foldMachineSet (((nextMInputs ++ o, nextMOutputs, nextMState), nextMResult) : xs) in -- hack - input position math may need tweak / reversal
+    (s, o, r) : rest
+
+
+-- Run machines in provided state-stack, returning their new states
+-- newly-emitted outputs are forwarded into the states of the next machine, or returned at the end
+-- For each machine, (state, this-run outputs, Either NextPosition or Result)
+-- Current always gets appended to the list; convert to dequeue when algorithm is stable
+runMachineSet ::
+    [(MemIState, Either Int ())]
+    -> [(MemIState, [Int], Either Int ())]
+runMachineSet machines = foldMachineSet machines
+
+
+buildSequencerInitialStates' :: [Int] -> [[Int]] -> [MemIState]
+buildSequencerInitialStates' program [] = []
+buildSequencerInitialStates' program initialInputs =
+    map (buildInterpreterInitialState program) initialInputs
+
+-- Builds interpreters wherein the initial inputs are set to the given values
+-- The starter set is added to the first interpreter after its passed-in initial inputs
+buildSequencerInitialStates :: [Int] -> [[Int]] -> [Int] -> [MemIState]
+buildSequencerInitialStates program [] _ = []
+buildSequencerInitialStates program (firstInitial : restInitials) starterInputs =
+    buildSequencerInitialStates' program ((firstInitial ++ starterInputs) : restInitials)
+
+-- Builds machine initial states where each starts at position 0 with the given inputs and expects outputs to feed forward
+buildSequencerMachines :: [Int] -> [[Int]] -> [Int] -> [(MemIState, Either Int ())]
+buildSequencerMachines program initialInputs starterInputs =
+    map (\x->(x, Left 0)) $ buildSequencerInitialStates program initialInputs starterInputs
+
+
+sequenceMachinesDirectionallyUntil :: ([(MemIState, [Int], Either Int ())] -> Bool) -> [(MemIState, Either Int ())] -> [(MemIState, Either Int ())]
+sequenceMachinesDirectionallyUntil predicate machines =
+    let
+        res = runMachineSet machines
+        matches = predicate res
+        res' = map (\(s, o, r) -> (s, r)) res
     in
-    -- loop idxs
+    if matches then res' else sequenceMachinesDirectionallyUntil predicate res'
+
+
+sequenceMultipleInterpreters :: [Int] -> [[Int]] -> [Int] -> [(MemIState, Either String ())]
+sequenceMultipleInterpreters program [] _ = []
+sequenceMultipleInterpreters program initialInputs starterInputs =
+    let
+        initialMachines = buildSequencerInitialStates program initialInputs starterInputs
+
+        -- -- outputs already processed as result is present, pass nothing on, resume next machine
+        -- runMachineSet ((cur@(_, _, Right _)) : rest) = undefined -- If all existing machines have results, bail out
+        -- -- continue machine, process outputs; if result provided, machine should be registered as "right"
+        -- runMachineSet ((cur@(state, processedOutputs, Left nextPos)) : rest) = undefined
+
+    in
     undefined -- resumeInterpreterInMemory 
+
+
+
+
+
+
+
+
 
 
 
