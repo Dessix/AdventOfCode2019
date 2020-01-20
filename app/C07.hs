@@ -1,5 +1,6 @@
 {-# OPTIONS_GHC -fwarn-incomplete-patterns #-}
 {-# LANGUAGE ApplicativeDo #-}
+{-# LANGUAGE BlockArguments #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE GADTs #-}
@@ -16,7 +17,8 @@ import qualified Control.Monad.Parallel as Par
 
 import qualified Control.Monad.Fail
 
-import Data.Function (on)
+import Data.Function (on, (&))
+import Data.Ord (comparing)
 import Data.List
 import qualified Data.List as List
 import qualified Data.Maybe as Maybe
@@ -29,7 +31,6 @@ import Data.Map (Map)
 import qualified Data.Map as Map
 import Data.Vector (Vector)
 import qualified Data.Vector as Vector
-import Data.Function ((&))
 
 import Polysemy (runM, raise)
 import Polysemy (Sem (..), Member (..))
@@ -158,18 +159,18 @@ solveDay2Part2 requestedNumber =
 
 
 --- Run a single machine one step; exceptions (such as from insufficient inputs) undo the execution
-runSingleMachine :: Maybe String -> (MemIState, Either Int ()) -> (MemIState, Either Int ())
+runSingleMachine :: Maybe String -> (MemIState, Either Int Bool) -> (MemIState, Either Int Bool)
 runSingleMachine debugName cur@(_, Right _) = cur
 runSingleMachine debugName cur@(state, Left nextPos) =
     case resumeInterpreterInMemory state $ do runInterpreterAtPositionYieldingWithDebugName debugName nextPos of
         (state', Right (Just nextPos')) -> (state', Left nextPos')
-        (state', Right Nothing) -> (state', Right ())
+        (state', Right Nothing) -> (state', Right True)
         (_, Left _) -> case cur of -- An error occurred; handle it
-            (((_ : _), _, _), _) -> (state, Right ()) -- Had input available; was not a lack-of-input failure; bail
+            (((_ : _), _, _), _) -> (state, Right False) -- Had input available; was not a lack-of-input failure; bail
             _ -> cur -- No input available; may have been lack-of-input, continue next cycle
 
 -- Runs a machine, producing a new state and outputs to feed to the next
-runMachineStep :: Maybe String -> (MemIState, Either Int ()) -> ((MemIState, Either Int ()), [Int])
+runMachineStep :: Maybe String -> (MemIState, Either Int Bool) -> ((MemIState, Either Int Bool), [Int])
 runMachineStep debugName cur@(_, Right _) = (cur, [])
 runMachineStep debugName ((i, o, state), Left nextPos) =
     let ((i', o', state'), result) = runSingleMachine debugName ((i, [], state), Left nextPos)
@@ -177,8 +178,8 @@ runMachineStep debugName ((i, o, state), Left nextPos) =
 
 
 foldMachineSet ::
-    [(Int, (MemIState, Either Int ()))]
-    -> [(Int, (MemIState, [Int], Either Int ()))]
+    [(Int, (MemIState, Either Int Bool))]
+    -> [(Int, (MemIState, [Int], Either Int Bool))]
 foldMachineSet [] = []
 foldMachineSet ((name, x) : []) = let ((s, r), o) = runMachineStep (Just $ show name) x in [(name, (s, o, r))]
 foldMachineSet ((name, x) : (nextName, ((nextMInputs, nextMOutputs, nextMState), nextMResult)) : xs) =
@@ -191,8 +192,8 @@ foldMachineSet ((name, x) : (nextName, ((nextMInputs, nextMOutputs, nextMState),
 -- For each machine, (state, this-run outputs, Either NextPosition or Result)
 -- Current always gets appended to the list; convert to dequeue when algorithm is stable
 runMachineSet ::
-    [(MemIState, Either Int ())]
-    -> [(MemIState, [Int], Either Int ())]
+    [(MemIState, Either Int Bool)]
+    -> [(MemIState, [Int], Either Int Bool)]
 runMachineSet machines = map snd $ foldMachineSet $ zip [0..] machines
 
 buildSequencerInitialStates' :: [Int] -> [[Int]] -> [MemIState]
@@ -208,16 +209,16 @@ buildSequencerInitialStates program (firstInitial : restInitials) starterInputs 
     buildSequencerInitialStates' program ((firstInitial ++ starterInputs) : restInitials)
 
 -- Builds machine initial states where each starts at position 0 with the given inputs and expects outputs to feed forward
-buildSequencerMachines :: [Int] -> [[Int]] -> [Int] -> [(MemIState, Either Int ())]
+buildSequencerMachines :: [Int] -> [[Int]] -> [Int] -> [(MemIState, Either Int Bool)]
 buildSequencerMachines program initialInputs starterInputs =
     map (\x->(x, Left 0)) $ buildSequencerInitialStates program initialInputs starterInputs
 
 
 runMachineSequencerUntil ::
-    ([(MemIState, [Int], Either Int ())] -> [(MemIState, [Int], Either Int ())])
-    -> ([(MemIState, [Int], Either Int ())] -> Bool)
-    -> [(MemIState, Either Int ())]
-    -> [(MemIState, Either Int ())]
+    ([(MemIState, [Int], Either Int Bool)] -> [(MemIState, [Int], Either Int Bool)])
+    -> ([(MemIState, [Int], Either Int Bool)] -> Bool)
+    -> [(MemIState, Either Int Bool)]
+    -> [(MemIState, Either Int Bool)]
 runMachineSequencerUntil sequencer predicate [] = []
 runMachineSequencerUntil sequencer predicate machines =
     let
@@ -225,15 +226,15 @@ runMachineSequencerUntil sequencer predicate machines =
         res' = map (\(s, o, r) -> (s, r)) $ sequencer res
     in if predicate res then res' else runMachineSequencerUntil sequencer predicate res'
 
-sequenceMachinesDirectionallyUntil :: ([(MemIState, [Int], Either Int ())] -> Bool) -> [(MemIState, Either Int ())] -> [(MemIState, Either Int ())]
+sequenceMachinesDirectionallyUntil :: ([(MemIState, [Int], Either Int Bool)] -> Bool) -> [(MemIState, Either Int Bool)] -> [(MemIState, Either Int Bool)]
 sequenceMachinesDirectionallyUntil predicate machines = runMachineSequencerUntil id predicate machines
 
-sequenceMachinesCyclicallyUntil :: ([(MemIState, [Int], Either Int ())] -> Bool) -> [(MemIState, Either Int ())] -> [(MemIState, Either Int ())]
+sequenceMachinesCyclicallyUntil :: ([(MemIState, [Int], Either Int Bool)] -> Bool) -> [(MemIState, Either Int Bool)] -> [(MemIState, Either Int Bool)]
 sequenceMachinesCyclicallyUntil predicate machines =
     let
         selectNewOutputs (_, o', _) = o'
         addNewInputs ((i, o, s), o', r) i' = ((i ++ i', o, s), o', r)
-        sequencer :: [(MemIState, [Int], Either Int ())] -> [(MemIState, [Int], Either Int ())]
+        sequencer :: [(MemIState, [Int], Either Int Bool)] -> [(MemIState, [Int], Either Int Bool)]
         sequencer items = headApply (\x -> addNewInputs x (selectNewOutputs (last items))) items
     in runMachineSequencerUntil sequencer predicate machines
 
@@ -251,169 +252,24 @@ sequenceMachinesDirectionallyUntilLastExits machines =
 sequenceMachinesCyclicallyUntilLastExits machines =
     sequenceMachinesCyclicallyUntil (\machines -> case (last machines) of (_, _, Right _) -> True ; _ -> False) machines
 
--- Proof that IO results can be consumed iteratively
--- testThreadBlocking = do
---     a <- newChan
---     b <- newChan
---     forkIO $ do
---         writeChan a "1"
---         threadDelay 20000000
---         writeChan a "2"
---     forkIO $ do
---         contents <- getChanContents a
---         writeList2Chan b contents
-    
---     items <- getChanContents b
---     mapM_ (putStrLn . show) items
-
--- testThreadBlocking2 = do
---     a <- newChan
---     b <- newChan
---     c <- newChan
---     writeChan a 1
---     forkIO $ do
---         items <- getChanContents a
---         let stream = takeWhiler (\x -> x < 1000) $ scanl (\memo item -> item) 1 items 
---             in do
---             writeList2Chan b stream
---             writeChan c $ last $ stream
---     forkIO $ do
---         contents <- getChanContents b
---         writeList2Chan a $ map (* 2) contents
-    
---     result <- readChan c
---     putStrLn $ show result
-
-
-runInterpreterThreadOnChannels :: (Member (Embed IO) r) => [Int] -> [Int] -> (OutChan Int, InChan Int) -> Sem (Interpreter ': r) a -> Sem r (Maybe Int, Either String a)
-runInterpreterThreadOnChannels program baseInputs (inchan, outchan) instructions = do
-    program <- embed $ listToMVector program
-    inputs <- embed $ getChanContents inchan
-    ((_, mem), (outputs, res)) <- runInterpreterIOStreaming ((baseInputs ++ inputs), program) instructions
-
-    embed $ writeList2Chan outchan outputs
-    return $ (if outputs /= [] then Just (last outputs) else Nothing, res)
-
-
--- testInterpreterSimultaneity = do
---     inchan <- newChan
---     outchan <- newChan
---     forkIO $ runM $ do
---         runInterpreterThreadOnChannels [0,0,0,0] [] (inchan, outchan) $ do
---             v <- input'
---             output' (v * 2)
---         return ()
---     consoleRead <- getLine
---     writeChan inchan (read @Int consoleRead)
---     result <- readChan outchan
---     putStrLn (show result)
-
-nameObjects nameSequence objects =
-    Map.fromList (zip (Set.toList (Set.fromList objects)) nameSequence)
-
-sequenceMultipleInterpretersIONoLoop :: [Int] -> [[Int]] -> Int -> IO (Either String Int)
-sequenceMultipleInterpretersIONoLoop program blockInitialInputs initializerInput =
+solveDay7Part2 program =
     let
-        section :: (Member (Embed IO) r) => (OutChan Int, InChan Int) -> [Int] -> Sem (Interpreter ': r) () -> Sem r ()
-        section (inchan, outchan) initialInputs instructions = do
-            runInterpreterThreadOnChannels program initialInputs (inchan, outchan) instructions
-            return ()
-        blockCount = List.length blockInitialInputs
-    in do
-    traceM $ printf "Blockcount is %d" blockCount
-    channels <- replicateM (blockCount + 1) newChan
-    let
-        blockChanSets =
-            map (\((_, io), (oi, _)) -> (io, oi)) $ take blockCount $ slidingPairs (channels)
-        makeSection (id, (iocs, initialInputs)) =
-            section iocs initialInputs $ do
-                traceM $ printf "I#%d has initial inputs %s" id (show initialInputs)
-                let
-                    loop pos = do
-                        res <- runInterpreterAtPositionYieldingWithDebugName (Just ("I#"++(show id))) pos
-                        --traceM $ printf "I#%d yielding with nextPos of %s" id (show res)
-                        --embed $ yield
-                        case res of
-                            Just next -> loop next
-                            Nothing -> do
-                                traceM $ printf "Exiting interpreter %d" id
-                                return ()
-                    in
-                    loop 0
-        sections :: [Sem '[Embed IO] ()]
-        sections = map makeSection
-            (zip
-                ([0..]::[Int])
-                (zip
-                    blockChanSets
-                    blockInitialInputs
-               ))
-        globalInputChannel = head channels
-        in do
-        traceM "Writing initial input"
-        writeChan (fst globalInputChannel) initializerInput
-        traceM $ printf "Starting threads for %d sections" (List.length sections)
-        Par.mapM (Polysemy.runM) sections
-        traceM "Gathering results..."
-        results <- getChanContents (snd (last channels))
-        forM_ results (\r -> putStrLn (show r))
-        return $ Right $ last results
+        modesets = List.permutations [5,6,7,8,9]
+        resultsForModeset :: [[Int]] -> Maybe Int
+        resultsForModeset modeset =
+            let machines = buildSequencerMachines program modeset [0] in
+            case last $ sequenceMachinesCyclicallyUntilLastExits machines of
+                ((_, o, _), Right True) -> Just $ last o
+                (_, Right False) -> Nothing -- Exited with error
+                _ -> error "Machine 'exited' without exiting?"
+        modesetsToResults :: [([Int], Int)]
+        modesetsToResults = map (\(m, Just x) -> (m, x)) $ filter (\case (_, Just _) -> True ; (_, Nothing) -> False) $ map
+            (\modeset -> (modeset, resultsForModeset $ map return modeset))
+            modesets
+        maximizingModesetAndResult = List.maximumBy (comparing snd) modesetsToResults
+    in
+    snd maximizingModesetAndResult
 
-testSequenceMultipleInterpretersNoLoop =
-    sequenceMultipleInterpretersIONoLoop
-        [3,15,3,16,1002,16,10,16,1,16,15,15,4,15,99,0,0]
-        --(map (\x->[x]) [4,3,2,1,0])
-        (map (\x->[x]) [4])
-        0
-
-sequenceMultipleInterpretersIO :: [Int] -> [[Int]] -> Int -> IO (Either String Int)
-sequenceMultipleInterpretersIO program blockInitialInputs initializerInput =
-    let
-        section :: (Member (Embed IO) r) => (OutChan Int, InChan Int) -> [Int] -> Sem (Interpreter ': r) () -> Sem r ()
-        section (inchan, outchan) initialInputs instructions = do
-            runInterpreterThreadOnChannels program initialInputs (inchan, outchan) instructions
-            return ()
-        blockCount = List.length blockInitialInputs
-    in do
-    channels <- replicateM blockCount newChan
-    -- First of `channels` is global input and also global output; arrange pairings to fit
-    -- a,b,c; cycle, pairize => [ab, bc, ca] leads to [... | a 1 b 2 c 3 | a 1 b 2 ...]
-    let
-        blockChanSets =
-            map (\((_, io), (oi, _)) -> (io, oi)) $ take blockCount $ slidingPairs (cycle channels)
-        sections :: [Sem '[Embed IO] ()]
-        sections = map (\(id, (iocs, initialInputs)) ->
-            section iocs initialInputs $ do
-                traceM $ printf "I#%d has initial inputs %s" id (show initialInputs)
-                let
-                    loop pos = do
-                        traceM $ printf "I#%d:" id
-                        res <- runInterpreterAtPositionYielding True pos
-                        traceM $ printf "I#%d yielding with nextPos of %s" id (show res)
-                        embed $ yield
-                        case res of
-                            Just next -> loop next
-                            Nothing -> do
-                                traceM $ printf "Exiting interpreter %d" id
-                                return ()
-                    in
-                    loop 0
-            ) (zip ([0..]::[Int]) (zip blockChanSets blockInitialInputs))
-        globalInputChannel = head channels
-        in do
-        traceM $ "Interpreter connections (i,o): " ++ (show (take blockCount $ slidingPairs (cycle [0..blockCount - 1])))
-        traceM "Writing initial input"
-        writeChan (fst globalInputChannel) initializerInput
-        outputChannel <- dupChan (fst globalInputChannel)
-        traceM "Starting threads"
-        mapM_ (forkIO . Polysemy.runM) sections
-        traceM "Gathering results..."
-        results <- getChanContents outputChannel
-        forM_ results (\r -> putStrLn (show r))
-        return $ Right $ last results
-
-
-testSequenceMultipleInterpreters =
-    sequenceMultipleInterpretersIO
-        [3,26,1001,26,-4,26,3,27,1002,27,2,27,1,27,26,27,4,27,1001,28,-1,28,1005,28,6,99,0,0,5] [[9],[8],[7],[6],[5]]
-        0
+solveDay7Part2FromConsole = do
+    program <- getIntsFromConsoleUntilBlank
+    return $ solveDay7Part2 program
