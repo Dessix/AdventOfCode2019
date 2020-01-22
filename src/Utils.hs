@@ -220,3 +220,5 @@ slidingPairs [] = []
 headApply :: (a -> a) -> [a] -> [a]
 headApply f [] = []
 headApply f (x : xs) = (f x) : xs
+
+pam = flip map
