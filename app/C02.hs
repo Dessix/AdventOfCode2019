@@ -61,11 +61,12 @@ runIntCodeST input = runIntCodeAtPositionST input 0
 runIntCode :: [Int] -> Maybe [Int]
 runIntCode input =
     let inputAsArray = (arrayOfList input :: Array Int Int) in
-    let results = (runST (do
-        arr <- (Data.Array.ST.thaw inputAsArray :: ST s (STUArray s Int Int))
-        res <- runIntCodeST arr
-        mapM freeze res
-        )) :: Maybe (Array Int Int) in
+    let
+        results = (runST (do
+            arr <- (Data.Array.ST.thaw inputAsArray :: ST s (STUArray s Int Int))
+            res <- runIntCodeST arr
+            mapM freeze res
+            )) :: Maybe (Array Int Int) in
     liftM Data.Array.IArray.elems results
 
 
@@ -91,14 +92,14 @@ findIntCodeTweakWithResultArray :: Array Int Int -> Int -> [[(Int, Int)]] -> May
 findIntCodeTweakWithResultArray _ _ [] = Nothing
 findIntCodeTweakWithResultArray input desired (tweaks : rest) =
     let output = runST (do
-        arr <- (Data.Array.ST.thaw input) :: ST s (Data.Array.ST.STUArray s Int Int)
-        mapM_ (\(pos, newValue) -> writeArray arr pos newValue) tweaks
-        runIntCodeST arr
-        resultCode <- readArray arr (0 :: Int)
-        if resultCode == desired then return (Just tweaks) else do
-            traceM (printf "ResultCode incorrect with value %d" resultCode)
-            return Nothing
-        ) in
+            arr <- (Data.Array.ST.thaw input) :: ST s (Data.Array.ST.STUArray s Int Int)
+            mapM_ (\(pos, newValue) -> writeArray arr pos newValue) tweaks
+            runIntCodeST arr
+            resultCode <- readArray arr (0 :: Int)
+            if resultCode == desired then return (Just tweaks) else do
+                traceM (printf "ResultCode incorrect with value %d" resultCode)
+                return Nothing
+            ) in
     case output of
         Just tweaks -> Just tweaks
         Nothing -> findIntCodeTweakWithResultArray input desired rest

@@ -127,13 +127,13 @@ resumeInterpreterIO initialState =
       if addr < 0 || MVector.length mem <= addr then
         throw @String $ printf "Out of bounds memory access at address %d" addr
       else
-        embed $ MVector.read mem addr
+        embed @IO $ MVector.read mem addr
     WriteMemory addr value -> do
       (i, o, mem) <- get @MemIOState
       if addr < 0 || addr > (MVector.length mem) then
         throw @String $ printf "Out of bounds memory write at address %d" addr
       else do
-        embed $ MVector.write mem addr value
+        embed @IO $ MVector.write mem addr value
         put @MemIOState (i, o, mem)
     ConsoleInput -> do
       (i, o, mem) <- get @MemIOState
@@ -156,20 +156,20 @@ runInterpreterIOStreaming initialState =
   . runError
   . reinterpret3 \case
     ReadMemory addr -> do
-      (_, mem) <- get
+      (_, mem) <- get @InterpreterStreamingState
       if addr < 0 || addr > mlen then
         throw @String $ printf "Out of bounds memory access at address %d" addr
       else
-        embed $ MVector.read mem addr
+        embed @IO $ MVector.read mem addr
     WriteMemory addr value -> do
-      (i, mem) <- get
+      (i, mem) <- get @InterpreterStreamingState
       if addr < 0 || addr > mlen then
         throw @String $ printf "Out of bounds memory write at address %d" addr
       else do
-        embed $ MVector.write mem addr value
+        embed @IO $ MVector.write mem addr value
         put (i, mem)
     ConsoleInput -> do
-      (i, mem) <- get
+      (i, mem) <- get @InterpreterStreamingState
       case i of
         x : xs -> do
           put (xs, mem)

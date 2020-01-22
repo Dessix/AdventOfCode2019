@@ -158,3 +158,101 @@ runInterpreterAtPosition debug pc = do
     case res of
         Just next -> runInterpreterAtPosition debug next
         Nothing -> return ()
+
+
+-- "Machines"
+
+--- Run a single machine one step; exceptions (such as from insufficient inputs) undo the execution
+runSingleMachine :: Maybe String -> (MemIState, Either Int Bool) -> (MemIState, Either Int Bool)
+runSingleMachine debugName cur@(_, Right _) = cur
+runSingleMachine debugName cur@(state, Left nextPos) =
+    case resumeInterpreterInMemory state $ do runInterpreterAtPositionYieldingWithDebugName debugName nextPos of
+        (state', Right (Just nextPos')) -> (state', Left nextPos')
+        (state', Right Nothing) -> (state', Right True)
+        (_, Left _) -> case cur of -- An error occurred; handle it
+            (((_ : _), _, _), _) -> (state, Right False) -- Had input available; was not a lack-of-input failure; bail
+            _ -> cur -- No input available; may have been lack-of-input, continue next cycle
+
+-- Runs a machine, producing a new state and outputs to feed to the next
+runMachineStep :: Maybe String -> (MemIState, Either Int Bool) -> ((MemIState, Either Int Bool), [Int])
+runMachineStep debugName cur@(_, Right _) = (cur, [])
+runMachineStep debugName ((i, o, state), Left nextPos) =
+    let ((i', o', state'), result) = runSingleMachine debugName ((i, [], state), Left nextPos)
+    in (((i', o ++ o', state'), result), o')
+
+
+foldMachineSet ::
+    [(Int, (MemIState, Either Int Bool))]
+    -> [(Int, (MemIState, [Int], Either Int Bool))]
+foldMachineSet [] = []
+foldMachineSet ((name, x) : []) = let ((s, r), o) = runMachineStep (Just $ show name) x in [(name, (s, o, r))]
+foldMachineSet ((name, x) : (nextName, ((nextMInputs, nextMOutputs, nextMState), nextMResult)) : xs) =
+    let ((s, r), o) = runMachineStep (Just $ show name) x in
+    let rest = foldMachineSet ((nextName, ((nextMInputs ++ o, nextMOutputs, nextMState), nextMResult)) : xs) in
+    (name, (s, o, r)) : rest
+
+-- Run machines in provided state-stack, returning their new states
+-- newly-emitted outputs are forwarded into the states of the next machine, or returned at the end
+-- For each machine, (state, this-run outputs, Either NextPosition or Result)
+-- Current always gets appended to the list; convert to dequeue when algorithm is stable
+runMachineSet ::
+    [(MemIState, Either Int Bool)]
+    -> [(MemIState, [Int], Either Int Bool)]
+runMachineSet machines = map snd $ foldMachineSet $ zip [0..] machines
+
+buildSequencerInitialStates' :: [Int] -> [[Int]] -> [MemIState]
+buildSequencerInitialStates' program [] = []
+buildSequencerInitialStates' program initialInputs =
+    map (buildInterpreterInitialState program) initialInputs
+
+-- Builds interpreters wherein the initial inputs are set to the given values
+-- The starter set is added to the first interpreter after its passed-in initial inputs
+buildSequencerInitialStates :: [Int] -> [[Int]] -> [Int] -> [MemIState]
+buildSequencerInitialStates program [] _ = []
+buildSequencerInitialStates program (firstInitial : restInitials) starterInputs =
+    buildSequencerInitialStates' program ((firstInitial ++ starterInputs) : restInitials)
+
+-- Builds machine initial states where each starts at position 0 with the given inputs and expects outputs to feed forward
+buildSequencerMachines :: [Int] -> [[Int]] -> [Int] -> [(MemIState, Either Int Bool)]
+buildSequencerMachines program initialInputs starterInputs =
+    map (\x->(x, Left 0)) $ buildSequencerInitialStates program initialInputs starterInputs
+
+
+runMachineSequencerUntil ::
+    ([(MemIState, [Int], Either Int Bool)] -> [(MemIState, [Int], Either Int Bool)])
+    -> ([(MemIState, [Int], Either Int Bool)] -> Bool)
+    -> [(MemIState, Either Int Bool)]
+    -> [(MemIState, Either Int Bool)]
+runMachineSequencerUntil sequencer predicate [] = []
+runMachineSequencerUntil sequencer predicate machines =
+    let
+        res = runMachineSet machines
+        res' = map (\(s, o, r) -> (s, r)) $ sequencer res
+    in if predicate res then res' else runMachineSequencerUntil sequencer predicate res'
+
+sequenceMachinesDirectionallyUntil :: ([(MemIState, [Int], Either Int Bool)] -> Bool) -> [(MemIState, Either Int Bool)] -> [(MemIState, Either Int Bool)]
+sequenceMachinesDirectionallyUntil predicate machines = runMachineSequencerUntil id predicate machines
+
+sequenceMachinesCyclicallyUntil :: ([(MemIState, [Int], Either Int Bool)] -> Bool) -> [(MemIState, Either Int Bool)] -> [(MemIState, Either Int Bool)]
+sequenceMachinesCyclicallyUntil predicate machines =
+    let
+        selectNewOutputs (_, o', _) = o'
+        addNewInputs ((i, o, s), o', r) i' = ((i ++ i', o, s), o', r)
+        sequencer :: [(MemIState, [Int], Either Int Bool)] -> [(MemIState, [Int], Either Int Bool)]
+        sequencer items = headApply (\x -> addNewInputs x (selectNewOutputs (last items))) items
+    in runMachineSequencerUntil sequencer predicate machines
+
+-- Usages of the above sequencers
+
+sequenceMachinesDirectionallyUntilFirstOutput machines =
+    sequenceMachinesDirectionallyUntil (\machines -> case (last machines) of (_, (_ : _), _) -> True ; _ -> False) machines
+
+sequenceMachinesCyclicallyUntilFirstOutput machines =
+    sequenceMachinesCyclicallyUntil (\machines -> case (last machines) of (_, (_ : _), _) -> True ; _ -> False) machines
+
+sequenceMachinesDirectionallyUntilLastExits machines =
+    sequenceMachinesDirectionallyUntil (\machines -> case (last machines) of (_, _, Right _) -> True ; _ -> False) machines
+
+sequenceMachinesCyclicallyUntilLastExits machines =
+    sequenceMachinesCyclicallyUntil (\machines -> case (last machines) of (_, _, Right _) -> True ; _ -> False) machines
+
